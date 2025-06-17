@@ -1,0 +1,12 @@
+{
+  "type": "record",
+  "name": "BankTransaction",
+  "fields": [
+    {"name": "transaction_id", "type": "string"},
+    {"name": "timestamp", "type": "long"},
+    {"name": "account_id", "type": "string"},
+    {"name": "amount", "type": "double"},
+    {"name": "transaction_type", "type": {"type": "enum", "name": "TransactionType", "symbols": ["DEPOSIT", "WITHDRAWAL", "TRANSFER"]}},
+    {"name": "current_balance", "type": "double"}
+  ]
+}
