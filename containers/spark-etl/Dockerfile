@@ -1,4 +1,4 @@
-# containers/spark-etl/Dockerfile - Versão robusta
+# containers/spark-etl/Dockerfile
 FROM bitnami/spark:3.4.1
 
 USER root
@@ -20,52 +20,27 @@ RUN pip3 install --no-cache-dir --upgrade pip && \
         kafka-python==2.0.2 \
         py4j==0.10.9.7
 
-# Criar diretório para JARs se não existir
+# Criar diretório de JARs (caso não exista)
 RUN mkdir -p /opt/bitnami/spark/jars
 
-# Baixar os JARs necessários para Kafka (versão completa e compatível)
-RUN wget --retry-connrefused --waitretry=1 --read-timeout=20 --timeout=15 -t 3 \
-    -O /opt/bitnami/spark/jars/spark-sql-kafka-0-10_2.12-3.4.1.jar \
-    https://repo1.maven.org/maven2/org/apache/spark/spark-sql-kafka-0-10_2.12/3.4.1/spark-sql-kafka-0-10_2.12-3.4.1.jar && \
-    echo "Downloaded spark-sql-kafka JAR successfully"
+# Copiar todos os JARs pré-baixados localmente
+# (coloque seus .jar em containers/spark-etl/jars/ antes do build)
+COPY jars/*.jar /opt/bitnami/spark/jars/
 
-RUN wget --retry-connrefused --waitretry=1 --read-timeout=20 --timeout=15 -t 3 \
-    -O /opt/bitnami/spark/jars/kafka-clients-3.4.0.jar \
-    https://repo1.maven.org/maven2/org/apache/kafka/kafka-clients/3.4.0/kafka-clients-3.4.0.jar && \
-    echo "Downloaded kafka-clients JAR successfully"
-
-RUN wget --retry-connrefused --waitretry=1 --read-timeout=20 --timeout=15 -t 3 \
-    -O /opt/bitnami/spark/jars/spark-streaming-kafka-0-10_2.12-3.4.1.jar \
-    https://repo1.maven.org/maven2/org/apache/spark/spark-streaming-kafka-0-10_2.12/3.4.1/spark-streaming-kafka-0-10_2.12-3.4.1.jar && \
-    echo "Downloaded spark-streaming-kafka JAR successfully"
-
-RUN wget --retry-connrefused --waitretry=1 --read-timeout=20 --timeout=15 -t 3 \
-    -O /opt/bitnami/spark/jars/commons-pool2-2.11.1.jar \
-    https://repo1.maven.org/maven2/org/apache/commons/commons-pool2/2.11.1/commons-pool2-2.11.1.jar && \
-    echo "Downloaded commons-pool2 JAR successfully"
-
-# Baixar dependências adicionais que podem estar faltando
-RUN wget --retry-connrefused --waitretry=1 --read-timeout=20 --timeout=15 -t 3 \
-    -O /opt/bitnami/spark/jars/spark-token-provider-kafka-0-10_2.12-3.4.1.jar \
-    https://repo1.maven.org/maven2/org/apache/spark/spark-token-provider-kafka-0-10_2.12/3.4.1/spark-token-provider-kafka-0-10_2.12-3.4.1.jar && \
-    echo "Downloaded spark-token-provider-kafka JAR successfully"
-
-# Verificar se os JARs foram baixados corretamente
-RUN ls -la /opt/bitnami/spark/jars/ | grep -E "(kafka|commons-pool2)"
+# Verificar se os JARs estão lá (opcional)
+RUN ls -1 /opt/bitnami/spark/jars/ | grep -E "spark-sql-kafka|spark-streaming-kafka|kafka-clients|commons-pool2|spark-token-provider"
 
 # Criar diretórios necessários
-RUN mkdir -p /app/data/output && \
-    mkdir -p /tmp/spark_checkpoint
+RUN mkdir -p /app/data/output /tmp/spark_checkpoint
 
 # Definir permissões
 RUN chown -R 1001:1001 /app /tmp/spark_checkpoint /opt/bitnami/spark/jars && \
     chmod -R 755 /app /tmp/spark_checkpoint
 
 USER 1001
-
 WORKDIR /app
 
-# Adicionar um healthcheck
+# Healthcheck
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD python3 -c "import pyspark; print('PySpark OK')" || exit 1
 
