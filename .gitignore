@@ -1,1 +1,5 @@
 artifacts/
+data/transactions/*.csv
+data/output/*.csv
+data/output/*.crc
+data/output/_spark_metadata/
