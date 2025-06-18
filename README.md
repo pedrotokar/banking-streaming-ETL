@@ -10,6 +10,10 @@ Sistema de streaming de transações bancárias em tempo real usando Apache Kafk
    docker compose down -v
    
    # Iniciar todos os serviços
+   docker compose up --build  
+
+   ou
+
    docker compose up
    ```
 
