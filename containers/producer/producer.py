@@ -1,16 +1,30 @@
-# Arquivo de teste, precisa mudar depois
+import numpy as np
+from confluent_kafka import Producer
+from confluent_kafka.admin import AdminClient, NewTopic
+import psycopg2
+import psycopg2.extras
 
+from datetime import datetime, timedelta
 import os
 import json
 import time
 import uuid
-import numpy as np
-from datetime import datetime, timedelta
-from confluent_kafka import Producer
-from confluent_kafka.admin import AdminClient, NewTopic
 
 KAFKA_BROKER = 'broker:29092'
 TOPIC_NAME = 'bank_transactions'
+
+conn_params = {
+    "host": "postgres",
+    "port": "5432",
+    "dbname": "bank",
+    "user": "bank_etl",
+    "password": "ihateavroformat123"
+}
+
+producer_config = {
+    'bootstrap.servers': KAFKA_BROKER,
+    'client.id': 'bank-transaction-producer'
+}
 
 np.random.seed(42)
 payment_methods = ["PIX", "TED", "DOC", "Boleto"]
@@ -37,10 +51,6 @@ for uf in estados_uf:
         "num_fraudes_ult_30d": num_fraude
     }
 
-producer_config = {
-    'bootstrap.servers': KAFKA_BROKER,
-    'client.id': 'bank-transaction-producer'
-}
 
 def create_topic(topic_name, num_partitions=1, replication_factor=1):
     """Create Kafka topic if it doesn't exist."""
@@ -66,52 +76,22 @@ def delivery_report(err, msg):
     else:
         print(f'Message delivered to {msg.topic()} [{msg.partition()}] @ {msg.offset()}')
 
-def generate_user_data():
-    """Generate random user data."""
-    user_id = str(uuid.uuid4())
-    saldo = round(np.random.exponential(scale=5000), 2)
-    
-    if same_limit_for_all:
-        base_limit = round(100 + np.random.exponential(scale=5000), 2)
-        limites = {
-            "limite_PIX": base_limit,
-            "limite_TED": base_limit,
-            "limite_DOC": base_limit,
-            "limite_Boleto": base_limit
-        }
-    else:
-        limites = {
-            "limite_PIX": round(100 + np.random.exponential(scale=5000), 2),
-            "limite_TED": round(100 + np.random.exponential(scale=5000), 2),
-            "limite_DOC": round(100 + np.random.exponential(scale=5000), 2),
-            "limite_Boleto": round(100 + np.random.exponential(scale=5000), 2)
-        }
-    
-    regiao = np.random.choice(estados_uf)
-    
-    return {
-        "id_usuario": user_id,
-        "id_regiao": regiao,
-        "saldo": saldo,
-        **limites,
-        **regioes[regiao]
-    }
 
-def generate_transaction():
+def generate_transaction(usuarios):
     """Generate a single random transaction."""
-    pagador = generate_user_data()
-    recebedor = generate_user_data()
-    
+    selecao = np.random.choice(np.arange(len(usuarios)), 2, replace = False)
+    pagador = usuarios[selecao[0]]
+    recebedor = usuarios[selecao[1]]
     valor = round(np.random.exponential(scale=1000), 2)
     
-    if valor > pagador["saldo"]:
-        valor = round(pagador["saldo"] * np.random.random(), 2)
+    if valor > pagador[1]:
+        valor = round(float(pagador[1]) * np.random.random(), 2)
     
     modalidade = np.random.choice(payment_methods)
     
-    limite_key = f"limite_{modalidade}"
-    if valor > pagador[limite_key]:
-        valor = round(pagador[limite_key] * np.random.random(), 2)
+    # limite_key = f"limite_{modalidade}"
+    # if valor > pagador[limite_key]:
+    #     valor = round(pagador[limite_key] * np.random.random(), 2)
     
     data_horario = int((datetime.now() - timedelta(
         seconds=int(np.random.rand() * 86400 * 365)
@@ -119,13 +99,12 @@ def generate_transaction():
     
     transaction = {
         'id_transacao': str(uuid.uuid4()),
-        'id_usuario_pagador': pagador["id_usuario"],
-        'id_usuario_recebedor': recebedor["id_usuario"],
-        'id_regiao': pagador["id_regiao"],
+        'id_usuario_pagador': pagador[0],
+        'id_usuario_recebedor': recebedor[0],
+        'id_regiao': np.random.choice(estados_uf),
         'modalidade_pagamento': modalidade,
         'data_horario': data_horario,
         'valor_transacao': valor,
-
     }
 
     # 'saldo_pagador': pagador["saldo"],
@@ -138,7 +117,22 @@ def generate_transaction():
     return transaction
 
 def main():
-    print("Starting transaction producer...")
+    print("Will now fetch users from postgres...")
+
+    try:
+        print("Connecting to postgres...")
+        with psycopg2.connect(**conn_params) as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT id_usuario, saldo FROM usuarios;")
+
+                usuarios = cur.fetchall()
+        print(f"Fetched existing {len(usuarios)} user ids")
+
+    except psycopg2.Error as e:
+        print(f"ERROR: Couldnt fetch users from postgres.\n{e}")
+        return
+
+    print("Now will start transaction producer...")
     
     create_topic(TOPIC_NAME)
     producer = Producer(producer_config)
@@ -148,7 +142,7 @@ def main():
     
     try:
         while True:
-            transaction = generate_transaction()
+            transaction = generate_transaction(usuarios)
             
             producer.produce(
                 topic=TOPIC_NAME,

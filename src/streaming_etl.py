@@ -33,7 +33,8 @@ parsed_messages = kafka_messages \
     .withColumn("dados", F.from_json(F.col("json_value"), schema))
 
 streaming_transactions = parsed_messages.select("dados.*")
-#
+
+# debug
 # query = (streaming_transactions
 #          .writeStream.outputMode("append")
 #          .format("console")
@@ -49,16 +50,35 @@ streaming_transactions = parsed_messages.select("dados.*")
 #     transactions_csv,
 #     header = True
 # )
-streaming_transactions = streaming_transactions.withWatermark("data_horario", "10 minutes").withColumnRenamed("id_regiao", "id_regiao_t")
+
+streaming_transactions = streaming_transactions \
+                         .withWatermark("data_horario", "10 minutes") \
+                         .withColumnRenamed("id_regiao", "id_regiao_t")
+
+jdbc_link = "jdbc:postgresql://localhost:5432/bank?stringtype=unspecified"
+connection_info = {
+    "user": "bank_etl",
+    "password": "ihateavroformat123",
+    "driver": "org.postgresql.Driver"
+}
+
+users = spark.read.jdbc(
+    url = jdbc_link,
+    table = "usuarios",
+    properties = connection_info
+).cache()
+
+# users = spark.read.load(
+#     users_csv,
+#     format = "csv",
+#     header = True,
+#     inferSchema = True
+# ).cache()
+
+users = users.withColumnRenamed("id_regiao", "id_regiao_u")
+
+
 #=====================
-
-users = spark.read.load(
-    users_csv,
-    format = "csv",
-    header = True,
-    inferSchema = True
-).cache().withColumnRenamed("id_regiao", "id_regiao_u")
-
 regions = spark.read.load(
     regions_csv,
     format = "csv",
@@ -135,7 +155,6 @@ streaming_output = transactions_users_loc.withColumn(
 
 #transaction_approved.show()
 
-
 streaming_output = streaming_output.select(
     F.col("id_transacao"),
     F.col("id_usuario_pagador"),
@@ -145,14 +164,34 @@ streaming_output = streaming_output.select(
     F.col("data_horario"),
     F.col("valor_transacao"),
     F.col("transacao_aprovada")
-)
+).withColumnRenamed("id_regiao_t", "id_regiao")
 
-query = (streaming_output
-         .writeStream.outputMode("append")
-         .format("csv")
-         .option("path", "data/output")
-         .option("checkpointLocation", "/tmp/spark_checkpoint")
-         .start())
+def write_microbatch_postsgres(data, mbatch_id):
+    data.write \
+        .format("jdbc") \
+        .option("url", jdbc_link) \
+        .option("dbtable", "transacoes") \
+        .option("user", connection_info["user"]) \
+        .option("password", connection_info["password"]) \
+        .option("driver", connection_info["driver"]) \
+        .mode("append") \
+        .save()
+
+query = streaming_output \
+        .writeStream \
+        .foreachBatch(write_microbatch_postsgres) \
+        .outputMode("update") \
+        .option("checkpointLocation", "/tmp/spark_checkpoint") \
+        .start()
+#        .trigger(proc)
+
+#Futuramente vai pro redis também (ele precisa existir antes)
+# query = (streaming_output
+#          .writeStream.outputMode("append")
+#          .format("csv")
+#          .option("path", "data/output")
+#          .option("checkpointLocation", "/tmp/spark_checkpoint")
+#          .start())
 
 query.awaitTermination()
 
