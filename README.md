@@ -1,27 +1,64 @@
-# Banking Transaction Stream
+# Banking Streaming ETL
 
-Sistema de streaming de transações bancárias em tempo real usando Apache Kafka, simulando transações PIX, TED, DOC e Boleto no Brasil.
+-------------------------------------------------------------------------------
 
-## Como Usar
+## Sobre o repositório
 
-1. **Iniciar serviços:**
-   ```bash
-   # Garantir que nenhum serviço antigo está rodando
-   docker compose down -v
-   
-   # Iniciar todos os serviços
-   docker compose up --build  
+Esse repositório é destinado à segunda avaliação da matéria de Computação
+Escalável, lecionada no 5º período da graduação de Ciência de Dados e
+Inteligência Artificial da FGV-EMAp.
 
-   ou
+O trabalho consiste em reaproveitar a pipeline modelada pelo grupo no primeiro
+trabalho e implementá-la usando ferramentas de mercado de computação distribuída
+e fazer deploy na nuvem.
 
-   docker compose up
-   ```
+As ferramentas utilizadas por nosso grupo até o momento foram:
 
-2. **Verificar o streaming:**
-   - Abrir Kafka UI: http://localhost:8080
-   - Clicar em "Topics"
-   - Selecionar tópico: `bank_transactions`
-   - Ver mensagens chegando em tempo real
+- Kafka para gerenciamento do broker;
+- Confluent para auxiliar na comunicação dos produtores de dados e o broker;
+- Spark Structured Streaming para execução das operações da pipeline;
+- PostgreSQL para armazenamento de dados históricos;
+- Docker e Docker Compose para gerenciamento dos componentes;
+- Streamlit para geração do dashboard.
+
+## Como executar
+
+Como fizemos uso do Docker Compose e de imagens de contêineres disponíveis
+publicamente, a execução de toda a pipeline consiste em utilizar um comando para
+iniciar os contêineres Docker. Para garantir que não há nenhum container sendo
+executado atualmente, utilize:
+
+```bash
+$ docker compose down -v
+```
+
+Caso seja a primeira vez executando, é necessário dar build nas imagens. Para
+isso:
+
+```bash
+$ docker compose up --build
+```
+
+Cao não seja a primeira vez executando e não tenham havido mudanças desde a última
+execução, basta utilizar
+
+```bash
+$ docker compose up
+```
+
+*OBS:* o banco de dados depende de uma tabela de usuários que é construída
+pelo script `historic_data_mock.py`. Então, durante a primeira execução do docker,
+é necessário rodar o script, verificar se a saída é positiva e então reiniciar
+os contêineres. Após isso, o banco de dados estará populado e os sistemas
+funcionarão como desejado.
+
+Para verificar que os produtores estão operando corretamente e que o broker está
+recebendo transações, é possível:
+
+- Abrir Kafka UI: http://localhost:8080
+- Clicar em "Topics"
+- Selecionar tópico: `bank_transactions`
+- Ver se há mensagens chegando em tempo real.
 
 ## Estrutura dos Dados
 
@@ -34,11 +71,11 @@ Cada transação contém:
   "id_regiao": "UF do estado brasileiro (ex: SP, RJ, MG, etc.)",
   "modalidade_pagamento": "PIX, TED, DOC ou Boleto",
   "data_horario": "Timestamp em milissegundos",
-  "valor_transacao": "Valor da transação em reais (double)",
-  "saldo_pagador": "Saldo do pagador em reais (double)",
-  "limite_modalidade": "Limite disponível para a modalidade de pagamento (double)"
+  "valor_transacao": "Valor da transação em reais (double)"
 }
 ```
+E são escritas no banco de dados PostgreSQL com uma coluna extra indicando se
+ela foi aprovada ou não.
 
 ## Características do Sistema
 
@@ -53,6 +90,7 @@ Cada transação contém:
 - **Kafka Broker**: localhost:9092
 - **Schema Registry**: localhost:8081 (Avro schema)
 - **Kafka UI**: localhost:8080
+- **PostgreSQL**: localhost:5432
 - **Producer**: Serviço interno que gera transações em tempo real
 
 ## Troubleshooting
