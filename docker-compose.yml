@@ -68,6 +68,18 @@ services:
       - schema-registry
     environment:
       PYTHONUNBUFFERED: 1
+  
+  spark-etl:
+    build: ./containers/spark-etl
+    container_name: spark-etl
+    depends_on:
+      - broker
+      - schema-registry
+    volumes:
+      - ./containers/spark-etl:/app
+    environment:
+      PYTHONUNBUFFERED: 1
+
   #
 volumes:
   zookeeper_data:
@@ -76,3 +88,4 @@ volumes:
     driver: local
   spark_checkpoint:
     driver: local
+
