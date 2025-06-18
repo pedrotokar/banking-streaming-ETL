@@ -22,16 +22,12 @@ estados_uf = [
     "RR","SC","SP","SE","TO"
 ]
 
-same_limit_for_all = True
-
-region_list = []
 regioes = {}
 for uf in estados_uf:
     lat = np.round(-34 + np.random.rand() * 39, 6)
     lon = np.round(-74 + np.random.rand() * 40, 6)
     media_mens = np.round(1_000 + np.random.rand() * 30_000, 2)
     num_fraude = int(np.random.randint(0, 100))
-    region_list.append([uf, lat, lon, media_mens, num_fraude])
     regioes[uf] = {
         "latitude": lat,
         "longitude": lon,
@@ -69,38 +65,23 @@ def create_topic(topic_name, num_partitions=1, replication_factor=1):
 def delivery_report(err, msg):
     """Callback invoked on message delivery success or failure."""
     if err is not None:
-        print(f'Message delivery failed: {err}')
-    else:
-        print(f'Message delivered to {msg.topic()} [{msg.partition()}] @ {msg.offset()}')
+        print(f'Erro: {err}')
 
 def generate_user_data():
     """Generate random user data."""
     user_id = str(uuid.uuid4())
     saldo = round(np.random.exponential(scale=5000), 2)
-    
-    if same_limit_for_all:
-        base_limit = round(100 + np.random.exponential(scale=5000), 2)
-        limites = {
-            "limite_PIX": base_limit,
-            "limite_TED": base_limit,
-            "limite_DOC": base_limit,
-            "limite_Boleto": base_limit
-        }
-    else:
-        limites = {
-            "limite_PIX": round(100 + np.random.exponential(scale=5000), 2),
-            "limite_TED": round(100 + np.random.exponential(scale=5000), 2),
-            "limite_DOC": round(100 + np.random.exponential(scale=5000), 2),
-            "limite_Boleto": round(100 + np.random.exponential(scale=5000), 2)
-        }
-    
+    base_limit = round(100 + np.random.exponential(scale=5000), 2)
     regiao = np.random.choice(estados_uf)
     
     return {
         "id_usuario": user_id,
         "id_regiao": regiao,
         "saldo": saldo,
-        **limites,
+        "limite_PIX": base_limit,
+        "limite_TED": base_limit,
+        "limite_DOC": base_limit,
+        "limite_Boleto": base_limit,
         **regioes[regiao]
     }
 
@@ -124,7 +105,7 @@ def generate_transaction():
         seconds=int(np.random.rand() * 86400 * 365)
     )).timestamp() * 1000)
     
-    transaction = {
+    return {
         'id_transacao': str(uuid.uuid4()),
         'id_usuario_pagador': pagador["id_usuario"],
         'id_usuario_recebedor': recebedor["id_usuario"],
@@ -139,7 +120,6 @@ def generate_transaction():
         'media_transacional_mensal': pagador["media_transacional_mensal"],
         'num_fraudes_ult_30d': pagador["num_fraudes_ult_30d"]
     }
-    return transaction
 
 def main():
     print("Starting transaction producer...")
@@ -150,9 +130,6 @@ def main():
         producer_config,
         default_value_schema=avro.loads(schema_str)
     )
-    
-    transaction_count = 0
-    print("Starting to generate and publish transactions in real-time...")
     
     try:
         while True:
@@ -166,20 +143,13 @@ def main():
             
             avro_producer.flush()
             
-            transaction_count += 1
-            if transaction_count % 100 == 0:
-                print(f"Generated and published {transaction_count} transactions")
-            
             time.sleep(0.1)  # 100ms entre transações
             
     except KeyboardInterrupt:
         print("\nStopping transaction producer...")
     except Exception as e:
-        print(f"Error producing message: {e}")
-    finally:
-        print(f"Total transactions published: {transaction_count}")
+        print(f"Erro: {e}")
 
 if __name__ == "__main__":
     time.sleep(15)
     main()
-
