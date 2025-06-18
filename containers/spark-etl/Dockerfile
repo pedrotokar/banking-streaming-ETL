@@ -1,5 +1,4 @@
-# containers/spark-etl/Dockerfile
-FROM bitnami/spark:3.4.1
+FROM bitnami/spark:3.5.0
 
 USER root
 
@@ -14,7 +13,7 @@ ENV PYTHONPATH="${PYTHONPATH}:/opt/bitnami/spark/python:/opt/bitnami/spark/pytho
 ENV PYSPARK_PYTHON=python3
 ENV PYSPARK_DRIVER_PYTHON=python3
 
-# Instalar dependências Python com versões específicas
+# Instalar dependências Python com versões atualizadas para Spark 3.5.0
 RUN pip3 install --no-cache-dir --upgrade pip && \
     pip3 install --no-cache-dir \
         kafka-python==2.0.2 \
@@ -23,8 +22,8 @@ RUN pip3 install --no-cache-dir --upgrade pip && \
 # Criar diretório de JARs (caso não exista)
 RUN mkdir -p /opt/bitnami/spark/jars
 
-# Copiar todos os JARs pré-baixados localmente
-COPY jars/*.jar /opt/bitnami/spark/jars/
+# Copiar JARs específicos do Spark 3.5.0 (v350)
+COPY jars/v350/*.jar /opt/bitnami/spark/jars/
 
 # Verificar se os JARs estão lá
 RUN ls -1 /opt/bitnami/spark/jars/ | grep -E "spark-sql-kafka|spark-streaming-kafka|kafka-clients|commons-pool2|spark-token-provider"
@@ -43,4 +42,5 @@ WORKDIR /app
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
     CMD python3 -c "import pyspark; print('PySpark OK')" || exit 1
 
-CMD ["python3", "simple_kafka_test.py"]
+# trocar streaming_etl.py para simple_kafka_test.py para testes simples
+CMD ["python3", "streaming_etl.py"]
