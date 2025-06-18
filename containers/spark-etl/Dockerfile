@@ -25,6 +25,9 @@ RUN mkdir -p /opt/bitnami/spark/jars
 # Copiar JARs específicos do Spark 3.5.0 (v350)
 COPY jars/v350/*.jar /opt/bitnami/spark/jars/
 
+# Copiar JARs adicionais necessários para o Spark Streaming com Kafka
+COPY jars/*.jar /opt/bitnami/spark/jars/
+
 # Verificar se os JARs estão lá
 RUN ls -1 /opt/bitnami/spark/jars/ | grep -E "spark-sql-kafka|spark-streaming-kafka|kafka-clients|commons-pool2|spark-token-provider"
 
