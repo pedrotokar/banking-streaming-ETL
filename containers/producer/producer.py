@@ -1,98 +1,105 @@
 # Arquivo de teste, precisa mudar depois
 
+import os
+import json
 import time
-from faker import Faker
-from confluent_kafka import SerializingProducer
-from confluent_kafka.schema_registry import SchemaRegistryClient
-from confluent_kafka.schema_registry.avro import AvroSerializer
+import pandas as pd
+from datetime import datetime
+from confluent_kafka import avro
+from confluent_kafka.avro import AvroProducer
+from confluent_kafka.admin import AdminClient, NewTopic
 
-# Kafka
-BOOTSTRAP_SERVERS = 'broker:29092'
+schema_path = "/app/data/schema.avsc"
+with open(schema_path) as f:
+    schema_str = f.read()
+
+KAFKA_BROKER = 'broker:29092'
 SCHEMA_REGISTRY_URL = 'http://schema-registry:8081'
-TRANSACTION_TOPIC = 'bank_transactions_raw'
+TOPIC_NAME = 'bank_transactions'
 
-# Esquema Avro
-SCHEMA_PATH = 'data/schema.avsc'
-with open(SCHEMA_PATH, 'r') as f:
-    VALUE_SCHEMA_STR = f.read()
+producer_config = {
+    'bootstrap.servers': KAFKA_BROKER,
+    'schema.registry.url': SCHEMA_REGISTRY_URL,
+    'client.id': 'bank-transaction-producer'
+}
+
+def create_topic(topic_name, num_partitions=1, replication_factor=1):
+    """Create Kafka topic if it doesn't exist."""
+    admin_client = AdminClient({'bootstrap.servers': KAFKA_BROKER})
+    
+    topics = admin_client.list_topics().topics
+    if topic_name not in topics:
+        print(f"Creating topic {topic_name}")
+        topic = NewTopic(
+            topic_name,
+            num_partitions=num_partitions,
+            replication_factor=replication_factor
+        )
+        admin_client.create_topics([topic])
+        print(f"Topic {topic_name} created")
+    else:
+        print(f"Topic {topic_name} already exists")
 
 def delivery_report(err, msg):
-    """Callback para relatar a entrega da mensagem."""
+    """Callback invoked on message delivery success or failure."""
     if err is not None:
-        print(f"Mensagem falhou na entrega: {err}")
+        print(f'Message delivery failed: {err}')
     else:
-        print(f"Mensagem entregue para {msg.topic()} [{msg.partition()}] @ {msg.offset()}")
+        print(f'Message delivered to {msg.topic()} [{msg.partition()}] @ {msg.offset()}')
+
+def read_transactions(csv_path):
+    """Read transactions from CSV file."""
+    return pd.read_csv(csv_path)
 
 def main():
-    fake = Faker('pt_BR')
-
-    schema_registry_conf = {'url': SCHEMA_REGISTRY_URL}
-    schema_registry_client = SchemaRegistryClient(schema_registry_conf)
-    avro_serializer = AvroSerializer(schema_registry_client, VALUE_SCHEMA_STR)
-
-    producer_conf = {
-        'bootstrap.servers': BOOTSTRAP_SERVERS,
-        'value.serializer': avro_serializer
-    }
-    producer = SerializingProducer(producer_conf)
-
-    print(f"Produzindo transações para o tópico: {TRANSACTION_TOPIC}")
-
-    account_balances = {}
-    for _ in range(5):
-        account_balances[fake.uuid4()] = fake.random_int(min=500, max=50000) / 100.0
-
-    try:
-        while True:
-            account_id = fake.random_element(elements=list(account_balances.keys()))
-            if fake.boolean(chance_of_getting_true=10):
-                new_account_id = str(fake.uuid4())
-                account_balances[new_account_id] = fake.random_int(min=100, max=10000) / 100.0
-                account_id = new_account_id
-
-            transaction_id = str(fake.uuid4())
-            timestamp = int(time.time() * 1000)
+    print("Starting transaction producer...")
+    
+    create_topic(TOPIC_NAME)
+    
+    avro_producer = AvroProducer(
+        producer_config,
+        default_value_schema=avro.loads(schema_str)
+    )
+    
+    csv_path = "/app/data/transacoes_100k.csv"
+    df_transactions = read_transactions(csv_path)
+    total_transactions = len(df_transactions)
+    
+    print(f"Loaded {total_transactions} transactions from CSV")
+    
+    transaction_count = 0
+    while True:
+        try:
+            row = df_transactions.iloc[transaction_count % total_transactions]
             
-            transaction_type = fake.random_element(elements=('DEPOSIT', 'WITHDRAWAL', 'TRANSFER'))
-            
-            amount = 0.0
-            if transaction_type == 'DEPOSIT':
-                amount = round(fake.random_int(min=10, max=1000) / 100.0, 2)
-                account_balances[account_id] += amount
-            elif transaction_type == 'WITHDRAWAL':
-                amount = round(fake.random_int(min=5, max=500) / 100.0, 2)
-            elif transaction_type == 'TRANSFER':
-                amount = round(fake.random_int(min=10, max=750) / 100.0, 2)
-
-            current_balance = round(account_balances[account_id], 2)
-
-            transaction_data = {
-                "transaction_id": transaction_id,
-                "timestamp": timestamp,
-                "account_id": account_id,
-                "amount": amount,
-                "transaction_type": transaction_type,
-                "current_balance": current_balance
+            transaction = {
+                'transaction_id': row['transaction_id'],
+                'timestamp': int(row['timestamp']),
+                'account_id': row['account_id'],
+                'amount': float(row['amount']),
+                'transaction_type': row['transaction_type'],
+                'current_balance': float(row['current_balance'])
             }
-
-            producer.produce(
-                topic=TRANSACTION_TOPIC,
-                value=transaction_data,
-                key=account_id,
-                on_delivery=delivery_report
+            
+            avro_producer.produce(
+                topic=TOPIC_NAME,
+                value=transaction,
+                callback=delivery_report
             )
-
-            producer.poll(0)
-
-            print(f"Transação enviada: ID={transaction_data['transaction_id']}, Conta={transaction_data['account_id']}, Tipo={transaction_data['transaction_type']}, Valor={transaction_data['amount']:.2f}, Saldo Antes={transaction_data['current_balance']:.2f}")
+            
+            avro_producer.flush()
+            
+            transaction_count += 1
+            if transaction_count % 100 == 0:
+                print(f"Published {transaction_count} transactions")
+            
             time.sleep(0.5)
-
-    except KeyboardInterrupt:
-        print("Produção interrompida")
-    finally:
-        producer.flush()
-        print("Produtor finalizado")
+            
+        except Exception as e:
+            print(f"Error producing message: {e}")
+            time.sleep(3)  
 
 if __name__ == "__main__":
+    time.sleep(15)
     main()
 
