@@ -1,4 +1,4 @@
-# streaming_etl.py - Versão corrigida
+# streaming_etl.py
 from pyspark.sql import SparkSession
 from pyspark.sql.types import StructType, StructField, StringType, TimestampType, DoubleType
 import pyspark.sql.functions as F

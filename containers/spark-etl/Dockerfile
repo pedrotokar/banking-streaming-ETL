@@ -24,10 +24,9 @@ RUN pip3 install --no-cache-dir --upgrade pip && \
 RUN mkdir -p /opt/bitnami/spark/jars
 
 # Copiar todos os JARs pré-baixados localmente
-# (coloque seus .jar em containers/spark-etl/jars/ antes do build)
 COPY jars/*.jar /opt/bitnami/spark/jars/
 
-# Verificar se os JARs estão lá (opcional)
+# Verificar se os JARs estão lá
 RUN ls -1 /opt/bitnami/spark/jars/ | grep -E "spark-sql-kafka|spark-streaming-kafka|kafka-clients|commons-pool2|spark-token-provider"
 
 # Criar diretórios necessários
