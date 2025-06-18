@@ -68,6 +68,10 @@ try:
             print("Set up completed, access to postgres sql server done")
 
             cur.execute("""
+                DROP TABLE IF EXISTS usuarios CASCADE;
+            """)
+
+            cur.execute("""
                 CREATE TABLE IF NOT EXISTS usuarios (
                     id_usuario UUID PRIMARY KEY,
                     id_regiao VARCHAR(2) NOT NULL,
@@ -78,6 +82,20 @@ try:
                     limite_Boleto NUMERIC(15, 2) NOT NULL DEFAULT 0.00
                 );
             """)
+
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS transacoes (
+                    id_transacao UUID PRIMARY KEY,
+                    id_usuario_pagador UUID REFERENCES usuarios(id_usuario),
+                    id_usuario_recebedor UUID REFERENCES usuarios(id_usuario),
+                    id_regiao VARCHAR(2) NOT NULL,
+                    modalidade_pagamento VARCHAR(6) NOT NULL,
+                    data_horario TIMESTAMP NOT NULL,
+                    valor_transacao NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
+                    transacao_aprovada BOOL NOT NULL
+                );
+            """)
+
             print("Users table is correct.")
 
             psycopg2.extras.execute_values(
