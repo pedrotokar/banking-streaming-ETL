@@ -1,5 +1,23 @@
 artifacts/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.env
+
+# Data files
 data/transactions/*.csv
 data/output/*.csv
 data/output/*.crc
 data/output/_spark_metadata/
+!data/schema.avsc
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,19 @@
+{
+  "type": "record",
+  "name": "BankTransaction",
+  "fields": [
+    {"name": "id_transacao", "type": "string"},
+    {"name": "id_usuario_pagador", "type": "string"},
+    {"name": "id_usuario_recebedor", "type": "string"},
+    {"name": "id_regiao", "type": "string"},
+    {"name": "modalidade_pagamento", "type": {"type": "enum", "name": "PaymentType", "symbols": ["PIX", "TED", "DOC", "Boleto"]}},
+    {"name": "data_horario", "type": "long"},
+    {"name": "valor_transacao", "type": "double"},
+    {"name": "saldo_pagador", "type": "double"},
+    {"name": "limite_modalidade", "type": "double"},
+    {"name": "latitude", "type": "double"},
+    {"name": "longitude", "type": "double"},
+    {"name": "media_transacional_mensal", "type": "double"},
+    {"name": "num_fraudes_ult_30d", "type": "int"}
+  ]
+}
