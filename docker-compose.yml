@@ -30,19 +30,6 @@ services:
       KAFKA_JMX_PORT: 9101
       KAFKA_JMX_HOSTNAME: localhost
 
-  schema-registry:
-    image: confluentinc/cp-schema-registry:7.5.0
-    hostname: schema-registry
-    container_name: schema-registry
-    depends_on:
-      - broker
-    ports:
-      - "8081:8081"
-    environment:
-      SCHEMA_REGISTRY_HOST_NAME: schema-registry
-      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: 'broker:29092'
-      SCHEMA_REGISTRY_LISTENERS: http://0.0.0.0:8081
-
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
     container_name: kafka-ui
@@ -51,24 +38,21 @@ services:
     environment:
       KAFKA_CLUSTERS_0_NAME: local-kafka
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: broker:29092
-      KAFKA_CLUSTERS_0_SCHEMAREGISTRY: http://schema-registry:8081
       KAFKA_CLUSTERS_0_ZOOKEEPERCONNECT: zookeeper:2181
     depends_on:
       - broker
-      - schema-registry
 
   producer:
-    build: ./containers/producer # O compose constroi a imagem a partir do Dockerfile em ./containers/producer
+    build: ./containers/producer
     container_name: producer
     volumes:
       - ./containers/producer:/app
       - ./data:/app/data
     depends_on:
       - broker
-      - schema-registry
     environment:
       PYTHONUNBUFFERED: 1
-  #
+
 volumes:
   zookeeper_data:
     driver: local

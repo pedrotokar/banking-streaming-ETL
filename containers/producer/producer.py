@@ -6,12 +6,10 @@ import time
 import uuid
 import numpy as np
 from datetime import datetime, timedelta
-from confluent_kafka import avro
-from confluent_kafka.avro import AvroProducer
+from confluent_kafka import Producer
 from confluent_kafka.admin import AdminClient, NewTopic
 
 KAFKA_BROKER = 'broker:29092'
-SCHEMA_REGISTRY_URL = 'http://schema-registry:8081'
 TOPIC_NAME = 'bank_transactions'
 
 np.random.seed(42)
@@ -39,13 +37,8 @@ for uf in estados_uf:
         "num_fraudes_ult_30d": num_fraude
     }
 
-schema_path = "/app/data/schema.avsc"
-with open(schema_path) as f:
-    schema_str = f.read()
-
 producer_config = {
     'bootstrap.servers': KAFKA_BROKER,
-    'schema.registry.url': SCHEMA_REGISTRY_URL,
     'client.id': 'bank-transaction-producer'
 }
 
@@ -132,6 +125,7 @@ def generate_transaction():
         'modalidade_pagamento': modalidade,
         'data_horario': data_horario,
         'valor_transacao': valor,
+
     }
 
     # 'saldo_pagador': pagador["saldo"],
@@ -147,11 +141,7 @@ def main():
     print("Starting transaction producer...")
     
     create_topic(TOPIC_NAME)
-    
-    avro_producer = AvroProducer(
-        producer_config,
-        default_value_schema=avro.loads(schema_str)
-    )
+    producer = Producer(producer_config)
     
     transaction_count = 0
     print("Starting to generate and publish transactions in real-time...")
@@ -160,19 +150,19 @@ def main():
         while True:
             transaction = generate_transaction()
             
-            avro_producer.produce(
+            producer.produce(
                 topic=TOPIC_NAME,
-                value=transaction,
+                value=json.dumps(transaction).encode('utf-8'),
                 callback=delivery_report
             )
             
-            avro_producer.flush()
+            producer.flush()
             
             transaction_count += 1
             if transaction_count % 100 == 0:
                 print(f"Generated and published {transaction_count} transactions")
             
-            time.sleep(0.1)  # 100ms entre transações
+            time.sleep(0.5)
             
     except KeyboardInterrupt:
         print("\nStopping transaction producer...")
@@ -184,4 +174,3 @@ def main():
 if __name__ == "__main__":
     time.sleep(15)
     main()
-
