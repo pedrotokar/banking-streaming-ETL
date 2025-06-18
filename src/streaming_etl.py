@@ -3,6 +3,8 @@ from pyspark.sql.types import StructType
 import pyspark.sql.functions as F
 
 
+schema_registry_url = "http://localhost:8081"
+
 transactions_csv = "data/transactions"
 users_csv = "data/informacoes_cadastro_100k.csv"
 regions_csv = "data/regioes_estados_brasil.csv"
@@ -13,15 +15,41 @@ schema = StructType()\
     .add("id_transacao", "string")\
     .add("id_usuario_pagador", "string")\
     .add("id_usuario_recebedor", "string")\
-    .add("id_regiao_t", "string")\
+    .add("id_regiao", "string")\
     .add("modalidade_pagamento", "string")\
     .add("data_horario", "timestamp")\
     .add("valor_transacao", "double")
 
-streaming_transactions = spark.readStream.schema(schema).csv(
-    transactions_csv,
-    header = True
-).withWatermark("data_horario", "10 minutes").withColumnRenamed("id_regiao", "id_regiao_t")
+kafka_messages = spark \
+    .readStream \
+    .format("kafka") \
+    .option("kafka.bootstrap.servers", "localhost:9092,localhost:9091") \
+    .option("subscribe", "bank_transactions") \
+    .load()
+
+
+parsed_messages = kafka_messages \
+    .select(F.col("value").cast("string").alias("json_value")) \
+    .withColumn("dados", F.from_json(F.col("json_value"), schema))
+
+streaming_transactions = parsed_messages.select("dados.*")
+#
+# query = (streaming_transactions
+#          .writeStream.outputMode("append")
+#          .format("console")
+#          .outputMode("append")
+#          .option("truncate", "false")
+#          .start())
+#
+# query.awaitTermination()
+#
+# spark.stop()
+
+# streaming_transactions = spark.readStream.schema(schema).csv(
+#     transactions_csv,
+#     header = True
+# )
+streaming_transactions = streaming_transactions.withWatermark("data_horario", "10 minutes").withColumnRenamed("id_regiao", "id_regiao_t")
 #=====================
 
 users = spark.read.load(
