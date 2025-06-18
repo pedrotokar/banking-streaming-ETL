@@ -132,13 +132,15 @@ def generate_transaction():
         'modalidade_pagamento': modalidade,
         'data_horario': data_horario,
         'valor_transacao': valor,
-        'saldo_pagador': pagador["saldo"],
-        'limite_modalidade': pagador[limite_key],
-        'latitude': pagador["latitude"],
-        'longitude': pagador["longitude"],
-        'media_transacional_mensal': pagador["media_transacional_mensal"],
-        'num_fraudes_ult_30d': pagador["num_fraudes_ult_30d"]
     }
+
+    # 'saldo_pagador': pagador["saldo"],
+    # 'limite_modalidade': pagador[limite_key],
+    # 'latitude': pagador["latitude"],
+    # 'longitude': pagador["longitude"],
+    # 'media_transacional_mensal': pagador["media_transacional_mensal"],
+    # 'num_fraudes_ult_30d': pagador["num_fraudes_ult_30d"]
+
     return transaction
 
 def main():
