@@ -52,7 +52,7 @@ insert_tuples = [
 
 #postgres connection info
 conn_params = {
-    "host": "localhost",
+    "host": "postgres",
     "port": "5432",
     "dbname": "bank",
     "user": "bank_etl",

@@ -10,6 +10,7 @@ venv/
 # Data files
 data/transactions/*.csv
 data/output/*
+data/postgresdb/
 !data/schema.avsc
 
 # IDE
