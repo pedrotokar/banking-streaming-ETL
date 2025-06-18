@@ -1,58 +1,74 @@
 # Banking Transaction Stream
 
-Sistema de streaming de transações bancárias usando Apache Kafka.
+Sistema de streaming de transações bancárias em tempo real usando Apache Kafka.
 
 ## Como Usar
 
-1. **Gerar dados de teste:**
+1. **Iniciar serviços:**
    ```bash
-   # Criar ambiente virtual
-   python3 -m venv venv
-   source venv/bin/activate
+   # Garantir que nenhum serviço antigo está rodando
+   docker compose down -v
    
-   # Instalar dependências
-   pip install -r requirements.txt
-   
-   # Gerar dados mock
-   python producer/make_mock.py
+   # Iniciar todos os serviços
+   docker compose up
    ```
 
-2. **Iniciar os serviços:**
-   ```bash
-   docker compose up -d
-   ```
-
-3. **Verificar o streaming:**
+2. **Verificar o streaming:**
    - Abrir Kafka UI: http://localhost:8080
-   - Ver mensagens no tópico: `bank_transactions`
+   - Clicar em "Topics"
+   - Selecionar tópico: `bank_transactions`
+   - Ver mensagens chegando em tempo real
 
 ## Estrutura dos Dados
 
 Cada transação contém:
-- ID da transação
-- Timestamp
-- ID da conta
-- Valor
-- Tipo (DEPOSIT, WITHDRAWAL, TRANSFER)
-- Saldo atual
+```json
+{
+  "transaction_id": "uuid string",
+  "timestamp": "unix timestamp em ms",
+  "account_id": "uuid string",
+  "amount": "valor decimal",
+  "transaction_type": "DEPOSIT/WITHDRAWAL/TRANSFER",
+  "current_balance": "valor decimal"
+}
+```
 
-## Serviços
+## Serviços e Portas
 
-- **Kafka Broker**: Porta 9092
-- **Schema Registry**: Porta 8081
-- **Kafka UI**: Porta 8080
-- **Producer**: Lê dados do CSV e publica no Kafka
+- **Kafka Broker**: localhost:9092
+- **Schema Registry**: localhost:8081
+- **Kafka UI**: localhost:8080
+- **Producer**: Serviço interno que gera transações em tempo real
 
 ## Troubleshooting
 
-Se encontrar problemas:
-1. Verificar se Docker está rodando
-2. Parar e reiniciar os serviços:
+1. **Problemas com Docker:**
    ```bash
-   docker compose down
-   docker compose up -d
+   # Parar e remover tudo
+   docker compose down -v
+   docker system prune -f
+   
+   # Reiniciar serviços
+   docker compose up
    ```
-3. Verificar logs:
+
+2. **Verificar logs:**
    ```bash
+   # Ver logs específicos do producer
    docker compose logs -f producer
+   
+   # Ver logs do Kafka
+   docker compose logs -f broker
    ```
+
+3. **Problemas comuns:**
+   - Se o Kafka UI não abrir, aguarde 30 segundos e recarregue
+   - Se o producer não conectar, verifique os logs e reinicie
+   - Se precisar parar, use Ctrl+C e depois `docker compose down -v`
+
+## Limpeza
+
+Para parar todos os serviços e limpar dados:
+```bash
+docker compose down -v
+```
