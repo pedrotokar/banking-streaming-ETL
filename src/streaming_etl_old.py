@@ -2,9 +2,6 @@ from pyspark.sql import SparkSession
 from pyspark.sql.types import StructType
 import pyspark.sql.functions as F
 
-
-schema_registry_url = "http://localhost:8081"
-
 transactions_csv = "data/transactions"
 users_csv = "data/informacoes_cadastro_100k.csv"
 regions_csv = "data/regioes_estados_brasil.csv"

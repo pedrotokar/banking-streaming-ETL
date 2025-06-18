@@ -1,13 +1,10 @@
-# streaming_etl.py
 from pyspark.sql import SparkSession
 from pyspark.sql.types import StructType, StructField, StringType, TimestampType, DoubleType
 import pyspark.sql.functions as F
 
-# Configurações de arquivos
 users_csv = "data/informacoes_cadastro_100k.csv"
 regions_csv = "data/regioes_estados_brasil.csv"
 
-# Criar SparkSession com configurações específicas para Kafka
 spark = SparkSession.builder \
     .appName("bankingETL") \
     .config("spark.sql.streaming.schemaInference", "true") \
@@ -17,10 +14,8 @@ spark = SparkSession.builder \
     .config("spark.sql.streaming.kafka.useDeprecatedOffsetFetching", "false") \
     .getOrCreate()
 
-# Configurar nível de log para reduzir verbosidade
 spark.sparkContext.setLogLevel("WARN")
 
-# Definir schema das transações de forma mais explícita
 schema = StructType([
     StructField("id_transacao", StringType(), True),
     StructField("id_usuario_pagador", StringType(), True),
@@ -34,7 +29,6 @@ schema = StructType([
 print("Iniciando leitura do stream Kafka...")
 
 try:
-    # Ler mensagens do Kafka com configurações mais específicas
     kafka_messages = spark \
         .readStream \
         .format("kafka") \
@@ -49,25 +43,35 @@ try:
 
     print("Stream Kafka iniciado com sucesso!")
 
-    # Parse das mensagens JSON
     parsed_messages = kafka_messages \
         .select(F.col("value").cast("string").alias("json_value")) \
         .withColumn("dados", F.from_json(F.col("json_value"), schema))
 
-    # Extrair dados das transações
     streaming_transactions = parsed_messages.select("dados.*") \
         .withWatermark("data_horario", "10 minutes") \
         .withColumnRenamed("id_regiao", "id_regiao_t")
 
     print("Carregando dados estáticos...")
 
-    # Carregar dados estáticos (users e regions)
-    users = spark.read \
-        .option("header", "true") \
-        .option("inferSchema", "true") \
-        .csv(users_csv) \
-        .cache() \
-        .withColumnRenamed("id_regiao", "id_regiao_u")
+    jdbc_link = "jdbc:postgresql://postgres:5432/bank?stringtype=unspecified"
+    connection_info = {
+        "user": "bank_etl",
+        "password": "ihateavroformat123",
+        "driver": "org.postgresql.Driver"
+    }
+
+    users = spark.read.jdbc(
+        url = jdbc_link,
+        table = "usuarios",
+        properties = connection_info
+    ).cache()
+
+    # users = spark.read \
+    #     .option("header", "true") \
+    #     .option("inferSchema", "true") \
+    #     .csv(users_csv) \
+    #     .cache()
+    users = users.withColumnRenamed("id_regiao", "id_regiao_u")
 
     regions = spark.read \
         .option("header", "true") \
@@ -153,19 +157,45 @@ try:
         F.col("data_horario"),
         F.col("valor_transacao"),
         F.col("transacao_aprovada")
-    )
+    ).withColumnRenamed("id_regiao_t", "id_regiao")
 
     print("Iniciando stream de saída...")
 
     # Escrever saída
+    # query = final_output \
+    #     .writeStream \
+    #     .outputMode("append") \
+    #     .format("json") \
+    #     .option("path", "/app/data/output") \
+    #     .option("checkpointLocation", "/tmp/spark_checkpoint") \
+    #     .trigger(processingTime='30 seconds') \
+    #     .start()
+
+    def write_microbatch_postsgres(data, mbatch_id):
+        data.write \
+            .format("jdbc") \
+            .option("url", jdbc_link) \
+            .option("dbtable", "transacoes") \
+            .option("user", connection_info["user"]) \
+            .option("password", connection_info["password"]) \
+            .option("driver", connection_info["driver"]) \
+            .mode("append") \
+            .save()
+
     query = final_output \
         .writeStream \
-        .outputMode("append") \
-        .format("json") \
-        .option("path", "/app/data/output") \
+        .foreachBatch(write_microbatch_postsgres) \
+        .outputMode("update") \
         .option("checkpointLocation", "/tmp/spark_checkpoint") \
-        .trigger(processingTime='30 seconds') \
         .start()
+
+    # query = streaming_output \
+    #     .writeStream \
+    #     .outputMode("append") \
+    #     .format("console") \
+    #     .option("truncate", "false") \
+    #     .trigger(processingTime='10 seconds') \
+    #     .start()
 
     print("Stream iniciado! Aguardando dados...")
     query.awaitTermination()
