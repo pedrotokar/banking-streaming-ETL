@@ -53,7 +53,26 @@ services:
     environment:
       PYTHONUNBUFFERED: 1
 
+  postgres:
+    image: postgres:16-alpine
+    container_name: bank_db_postgres
+
+    environment:
+      POSTGRES_USER: bank_etl #
+      POSTGRES_PASSWORD: ihateavroformat123
+      POSTGRES_DB: bank
+
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./data/postgresdb:/var/lib/postgresql/data
+
+    restart: unless-stopped
+
+
 volumes:
+  pgdata:
+    driver: local
   zookeeper_data:
     driver: local
   broker_data:

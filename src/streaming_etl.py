@@ -33,7 +33,8 @@ parsed_messages = kafka_messages \
     .withColumn("dados", F.from_json(F.col("json_value"), schema))
 
 streaming_transactions = parsed_messages.select("dados.*")
-#
+
+# debug
 # query = (streaming_transactions
 #          .writeStream.outputMode("append")
 #          .format("console")
@@ -49,16 +50,35 @@ streaming_transactions = parsed_messages.select("dados.*")
 #     transactions_csv,
 #     header = True
 # )
-streaming_transactions = streaming_transactions.withWatermark("data_horario", "10 minutes").withColumnRenamed("id_regiao", "id_regiao_t")
+
+streaming_transactions = streaming_transactions \
+                         .withWatermark("data_horario", "10 minutes") \
+                         .withColumnRenamed("id_regiao", "id_regiao_t")
+
+jdbc_link = "jdbc:postgresql://localhost:5432/bank"
+connection_info = {
+    "user": "bank_etl",
+    "password": "ihateavroformat123",
+    "driver": "org.postgresql.Driver"
+}
+
+users = spark.read.jdbc(
+    url = jdbc_link,
+    table = "usuarios",
+    properties = connection_info
+).cache()
+
+# users = spark.read.load(
+#     users_csv,
+#     format = "csv",
+#     header = True,
+#     inferSchema = True
+# ).cache()
+
+users = users.withColumnRenamed("id_regiao", "id_regiao_u")
+
+
 #=====================
-
-users = spark.read.load(
-    users_csv,
-    format = "csv",
-    header = True,
-    inferSchema = True
-).cache().withColumnRenamed("id_regiao", "id_regiao_u")
-
 regions = spark.read.load(
     regions_csv,
     format = "csv",
