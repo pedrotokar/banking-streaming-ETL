@@ -5,6 +5,7 @@ import json
 import time
 import uuid
 import numpy as np
+import pandas as pd
 from datetime import datetime, timedelta
 from confluent_kafka import avro
 from confluent_kafka.avro import AvroProducer
@@ -13,6 +14,7 @@ from confluent_kafka.admin import AdminClient, NewTopic
 KAFKA_BROKER = 'broker:29092'
 SCHEMA_REGISTRY_URL = 'http://schema-registry:8081'
 TOPIC_NAME = 'bank_transactions'
+OUTPUT_DIR = '/app/data'
 
 np.random.seed(42)
 payment_methods = ["PIX", "TED", "DOC", "Boleto"]
@@ -121,10 +123,44 @@ def generate_transaction():
         'num_fraudes_ult_30d': pagador["num_fraudes_ult_30d"]
     }
 
+def save_initial_data():
+    """Save user and region data to CSV files."""
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    
+    # Generate and save user data
+    users_data = []
+    for _ in range(1000):  # Generate 1000 initial users
+        user = generate_user_data()
+        users_data.append({
+            'id_usuario': user['id_usuario'],
+            'id_regiao': user['id_regiao'],
+            'saldo': user['saldo'],
+            'limite_PIX': user['limite_PIX'],
+            'limite_TED': user['limite_TED'],
+            'limite_DOC': user['limite_DOC'],
+            'limite_Boleto': user['limite_Boleto']
+        })
+    
+    # Prepare region data
+    regions_data = []
+    for uf, data in regioes.items():
+        regions_data.append({
+            'id_regiao': uf,
+            **data
+        })
+    
+    # Save to CSV
+    users_df = pd.DataFrame(users_data)
+    regions_df = pd.DataFrame(regions_data)
+    
+    users_df.to_csv(os.path.join(OUTPUT_DIR, "informacoes_cadastro_100k.csv"), index=False)
+    regions_df.to_csv(os.path.join(OUTPUT_DIR, "regioes_estados_brasil.csv"), index=False)
+
 def main():
     print("Starting transaction producer...")
     
     create_topic(TOPIC_NAME)
+    save_initial_data()  # Save initial data before starting to produce
     
     avro_producer = AvroProducer(
         producer_config,

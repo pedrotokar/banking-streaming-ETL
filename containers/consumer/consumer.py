@@ -129,40 +129,21 @@ def process_with_spark(transactions_csv, users_csv, regions_csv):
 
     spark.stop()
 
-def create_sample_data():
-    users_data = []
-    for i in range(1000):
-        user_id = str(uuid.uuid4())
-        regiao = np.random.choice(estados_uf)
-        users_data.append({
-            'id_usuario': user_id,
-            'id_regiao': regiao,
-            'saldo': round(np.random.exponential(scale=5000), 2),
-            'limite_PIX': round(100 + np.random.exponential(scale=5000), 2),
-            'limite_TED': round(100 + np.random.exponential(scale=5000), 2),
-            'limite_DOC': round(100 + np.random.exponential(scale=5000), 2),
-            'limite_Boleto': round(100 + np.random.exponential(scale=5000), 2)
-        })
+def process_messages(messages, transactions_csv, users_csv, regions_csv):
+    """Process a batch of messages and calculate risk scores."""
+    if not messages:
+        return
     
-    regions_data = []
-    for uf in estados_uf:
-        regions_data.append({
-            'id_regiao': uf,
-            'latitude': round(-34 + np.random.rand() * 39, 6),
-            'longitude': round(-74 + np.random.rand() * 40, 6),
-            'media_transacional_mensal': round(1_000 + np.random.rand() * 30_000, 2),
-            'num_fraudes_ult_30d': int(np.random.randint(0, 100))
-        })
+    # Save transactions to CSV
+    save_to_csv(messages, transactions_csv)
     
-    users_df = pd.DataFrame(users_data)
-    regions_df = pd.DataFrame(regions_data)
+    # Process with Spark
+    process_with_spark(transactions_csv, users_csv, regions_csv)
     
-    users_df.to_csv(os.path.join(OUTPUT_DIR, "informacoes_cadastro_100k.csv"), index=False)
-    regions_df.to_csv(os.path.join(OUTPUT_DIR, "regioes_estados_brasil.csv"), index=False)
+    print(f"Processed batch of {len(messages)} messages")
 
 def main():
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    create_sample_data()
 
     transactions_csv = os.path.join(OUTPUT_DIR, "transacoes_100k.csv")
     users_csv = os.path.join(OUTPUT_DIR, "informacoes_cadastro_100k.csv")
@@ -186,8 +167,7 @@ def main():
                 messages.append(value)
 
                 if len(messages) >= BATCH_SIZE:
-                    save_to_csv(messages, transactions_csv)
-                    process_with_spark(transactions_csv, users_csv, regions_csv)
+                    process_messages(messages, transactions_csv, users_csv, regions_csv)
                     messages = []
 
             except SerializerError as e:
@@ -202,4 +182,4 @@ def main():
 
 if __name__ == "__main__":
     time.sleep(30)
-    main() 
+    main()

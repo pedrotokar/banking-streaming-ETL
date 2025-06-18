@@ -2,3 +2,4 @@ confluent-kafka[avro]==2.3.0
 avro-python3==1.10.2
 requests==2.31.0
 numpy==1.24.3
+pandas==1.5.3
