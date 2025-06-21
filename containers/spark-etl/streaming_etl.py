@@ -203,7 +203,7 @@ try:
         .option("checkpointLocation", "/tmp/spark_checkpoint") \
         .start()
 
-    # Opcional: Stream adicional para console com métricas de latência
+    # Stream adicional para console com métricas de latência
     metrics_query = final_output.select(
         "id_transacao",
         "transacao_aprovada", 

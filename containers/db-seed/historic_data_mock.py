@@ -187,22 +187,6 @@ try:
             user_count = cur.fetchone()['count']
             print(f"Total de usuários criados: {user_count}")
 
-            # Criar função para limpeza de dados antigos (opcional)
-            cur.execute("""
-                CREATE OR REPLACE FUNCTION limpar_transacoes_antigas(dias_para_manter INTEGER DEFAULT 30)
-                RETURNS INTEGER AS $$
-                DECLARE
-                    registros_deletados INTEGER;
-                BEGIN
-                    DELETE FROM transacoes 
-                    WHERE created_at < NOW() - INTERVAL '1 day' * dias_para_manter;
-                    
-                    GET DIAGNOSTICS registros_deletados = ROW_COUNT;
-                    RETURN registros_deletados;
-                END;
-                $$ LANGUAGE plpgsql;
-            """)
-
             print("Database setup completed with timing metrics support!")
 
 except psycopg2.Error as e:
