@@ -68,6 +68,10 @@ try:
             print("Set up completed, access to postgres sql server done")
 
             cur.execute("""
+                DROP TABLE IF EXISTS transacoes CASCADE;
+            """)
+
+            cur.execute("""
                 DROP TABLE IF EXISTS usuarios CASCADE;
             """)
 
@@ -79,7 +83,8 @@ try:
                     limite_PIX NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
                     limite_TED NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
                     limite_DOC NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
-                    limite_Boleto NUMERIC(15, 2) NOT NULL DEFAULT 0.00
+                    limite_Boleto NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
             """)
 
@@ -92,11 +97,78 @@ try:
                     modalidade_pagamento VARCHAR(6) NOT NULL,
                     data_horario TIMESTAMP NOT NULL,
                     valor_transacao NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
-                    transacao_aprovada BOOL NOT NULL
+                    transacao_aprovada BOOL NOT NULL,
+                    -- Novas colunas para métricas de tempo
+                    tempo_saida_resultado TIMESTAMP,
+                    tempo_entrada_kafka TIMESTAMP,
+                    tempo_inicio_processamento TIMESTAMP,
+                    latencia_total_ms BIGINT,
+                    tempo_processamento_ms BIGINT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
             """)
 
-            print("Users table is correct.")
+            # Criar índices para otimizar consultas de performance
+            cur.execute("""
+                CREATE INDEX IF NOT EXISTS idx_transacoes_data_horario 
+                ON transacoes(data_horario);
+            """)
+
+            cur.execute("""
+                CREATE INDEX IF NOT EXISTS idx_transacoes_latencia 
+                ON transacoes(latencia_total_ms);
+            """)
+
+            cur.execute("""
+                CREATE INDEX IF NOT EXISTS idx_transacoes_aprovada 
+                ON transacoes(transacao_aprovada);
+            """)
+
+            cur.execute("""
+                CREATE INDEX IF NOT EXISTS idx_transacoes_modalidade 
+                ON transacoes(modalidade_pagamento);
+            """)
+
+            print("Tables created with timing metrics columns.")
+
+            # Criar uma view para estatísticas de performance
+            cur.execute("""
+                CREATE OR REPLACE VIEW vw_performance_stats AS
+                SELECT 
+                    modalidade_pagamento,
+                    COUNT(*) as total_transacoes,
+                    AVG(latencia_total_ms) as latencia_media_ms,
+                    MIN(latencia_total_ms) as latencia_minima_ms,
+                    MAX(latencia_total_ms) as latencia_maxima_ms,
+                    PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY latencia_total_ms) as latencia_p95_ms,
+                    AVG(tempo_processamento_ms) as tempo_processamento_medio_ms,
+                    COUNT(CASE WHEN transacao_aprovada THEN 1 END) as transacoes_aprovadas,
+                    COUNT(CASE WHEN NOT transacao_aprovada THEN 1 END) as transacoes_rejeitadas,
+                    ROUND(
+                        (COUNT(CASE WHEN transacao_aprovada THEN 1 END) * 100.0 / COUNT(*)), 2
+                    ) as taxa_aprovacao_pct
+                FROM transacoes 
+                WHERE latencia_total_ms IS NOT NULL
+                GROUP BY modalidade_pagamento;
+            """)
+
+            # Criar view para análise temporal
+            cur.execute("""
+                CREATE OR REPLACE VIEW vw_performance_temporal AS
+                SELECT 
+                    DATE_TRUNC('hour', tempo_saida_resultado) as hora,
+                    COUNT(*) as transacoes_por_hora,
+                    AVG(latencia_total_ms) as latencia_media_ms,
+                    MAX(latencia_total_ms) as latencia_maxima_ms,
+                    AVG(tempo_processamento_ms) as tempo_processamento_medio_ms
+                FROM transacoes 
+                WHERE tempo_saida_resultado IS NOT NULL 
+                  AND latencia_total_ms IS NOT NULL
+                GROUP BY DATE_TRUNC('hour', tempo_saida_resultado)
+                ORDER BY hora DESC;
+            """)
+
+            print("Performance views created.")
 
             psycopg2.extras.execute_values(
                 cur,
@@ -108,11 +180,39 @@ try:
                 page_size = 100
             )
 
-            print("Data inserted")
+            print("User data inserted successfully.")
 
+            # Mostrar estatísticas das tabelas criadas
+            cur.execute("SELECT COUNT(*) FROM usuarios;")
+            user_count = cur.fetchone()['count']
+            print(f"Total de usuários criados: {user_count}")
+
+            # Criar função para limpeza de dados antigos (opcional)
+            cur.execute("""
+                CREATE OR REPLACE FUNCTION limpar_transacoes_antigas(dias_para_manter INTEGER DEFAULT 30)
+                RETURNS INTEGER AS $$
+                DECLARE
+                    registros_deletados INTEGER;
+                BEGIN
+                    DELETE FROM transacoes 
+                    WHERE created_at < NOW() - INTERVAL '1 day' * dias_para_manter;
+                    
+                    GET DIAGNOSTICS registros_deletados = ROW_COUNT;
+                    RETURN registros_deletados;
+                END;
+                $$ LANGUAGE plpgsql;
+            """)
+
+            print("Database setup completed with timing metrics support!")
 
 except psycopg2.Error as e:
     print(f"Problem while doing postgres operations: {e}")
 else:
-    print("-" * 30)
-    print("Users mock successfully created.")
+    print("-" * 50)
+    print("Database successfully created with timing metrics!")
+    print("Performance views available:")
+    print("   - vw_performance_stats: Estatísticas por modalidade")
+    print("   - vw_performance_temporal: Análise temporal por hora")
+    print("Função de limpeza disponível:")
+    print("   - limpar_transacoes_antigas(dias): Remove dados antigos")
+    print("-" * 50)

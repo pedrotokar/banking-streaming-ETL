@@ -43,11 +43,17 @@ try:
 
     print("Stream Kafka iniciado com sucesso!")
 
+    # Capturar timestamp de chegada da mensagem no Kafka (tempo de entrada)
     parsed_messages = kafka_messages \
-        .select(F.col("value").cast("string").alias("json_value")) \
+        .select(
+            F.col("value").cast("string").alias("json_value"),
+            F.col("timestamp").alias("kafka_timestamp")  # Timestamp do Kafka
+        ) \
         .withColumn("dados", F.from_json(F.col("json_value"), schema))
 
-    streaming_transactions = parsed_messages.select("dados.*") \
+    # Adicionar timestamp de início do processamento
+    streaming_transactions = parsed_messages.select("dados.*", "kafka_timestamp") \
+        .withColumn("tempo_inicio_processamento", F.current_timestamp()) \
         .withWatermark("data_horario", "10 minutes") \
         .withColumnRenamed("id_regiao", "id_regiao_t")
 
@@ -66,11 +72,6 @@ try:
         properties = connection_info
     ).cache()
 
-    # users = spark.read \
-    #     .option("header", "true") \
-    #     .option("inferSchema", "true") \
-    #     .csv(users_csv) \
-    #     .cache()
     users = users.withColumnRenamed("id_regiao", "id_regiao_u")
 
     regions = spark.read \
@@ -147,7 +148,7 @@ try:
         F.col("score_aprovado") & F.col("saldo_aprovado") & F.col("limite_aprovado")
     )
 
-    # Selecionar colunas finais
+    # Selecionar colunas finais com métricas de tempo
     final_output = streaming_output.select(
         F.col("id_transacao"),
         F.col("id_usuario_pagador"),
@@ -156,22 +157,35 @@ try:
         F.col("modalidade_pagamento"),
         F.col("data_horario"),
         F.col("valor_transacao"),
-        F.col("transacao_aprovada")
+        F.col("transacao_aprovada"),
+        # Adicionar as métricas de tempo
+        F.current_timestamp().alias("tempo_saida_resultado"),  # Timestamp de saída
+        F.col("kafka_timestamp").alias("tempo_entrada_kafka"),  # Timestamp de entrada no Kafka
+        F.col("tempo_inicio_processamento"),  # Timestamp início processamento
+        # Calcular diferenças de tempo em milissegundos
+        (F.unix_timestamp(F.current_timestamp()) - F.unix_timestamp(F.col("kafka_timestamp"))).alias("latencia_total_ms"),
+        (F.unix_timestamp(F.current_timestamp()) - F.unix_timestamp(F.col("tempo_inicio_processamento"))).alias("tempo_processamento_ms")
     ).withColumnRenamed("id_regiao_t", "id_regiao")
 
     print("Iniciando stream de saída...")
 
-    # Escrever saída
-    # query = final_output \
-    #     .writeStream \
-    #     .outputMode("append") \
-    #     .format("json") \
-    #     .option("path", "/app/data/output") \
-    #     .option("checkpointLocation", "/tmp/spark_checkpoint") \
-    #     .trigger(processingTime='30 seconds') \
-    #     .start()
-
     def write_microbatch_postsgres(data, mbatch_id):
+        # Mostrar estatísticas de latência no console para monitoramento
+        if not data.isEmpty():
+            stats = data.agg(
+                F.avg("latencia_total_ms").alias("latencia_media_ms"),
+                F.max("latencia_total_ms").alias("latencia_maxima_ms"),
+                F.min("latencia_total_ms").alias("latencia_minima_ms"),
+                F.count("*").alias("total_transacoes")
+            ).collect()[0]
+            
+            print(f"=== Estatísticas Batch {mbatch_id} ===")
+            print(f"Total transações: {stats['total_transacoes']}")
+            print(f"Latência média: {stats['latencia_media_ms']:.2f}ms")
+            print(f"Latência mínima: {stats['latencia_minima_ms']:.2f}ms")
+            print(f"Latência máxima: {stats['latencia_maxima_ms']:.2f}ms")
+            print("=" * 40)
+        
         data.write \
             .format("jdbc") \
             .option("url", jdbc_link) \
@@ -189,13 +203,20 @@ try:
         .option("checkpointLocation", "/tmp/spark_checkpoint") \
         .start()
 
-    # query = streaming_output \
-    #     .writeStream \
-    #     .outputMode("append") \
-    #     .format("console") \
-    #     .option("truncate", "false") \
-    #     .trigger(processingTime='10 seconds') \
-    #     .start()
+    # Opcional: Stream adicional para console com métricas de latência
+    metrics_query = final_output.select(
+        "id_transacao",
+        "transacao_aprovada", 
+        "tempo_saida_resultado",
+        "latencia_total_ms",
+        "tempo_processamento_ms"
+    ).writeStream \
+        .outputMode("append") \
+        .format("console") \
+        .option("truncate", "false") \
+        .option("numRows", "5") \
+        .trigger(processingTime='30 seconds') \
+        .start()
 
     print("Stream iniciado! Aguardando dados...")
     query.awaitTermination()
