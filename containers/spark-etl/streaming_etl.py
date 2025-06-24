@@ -1,12 +1,14 @@
 from pyspark.sql import SparkSession
 from pyspark.sql.types import StructType, StructField, StringType, TimestampType, DoubleType
 import pyspark.sql.functions as F
+import os
 
 users_csv = "data/informacoes_cadastro_100k.csv"
 regions_csv = "data/regioes_estados_brasil.csv"
 
 spark = SparkSession.builder \
     .appName("bankingETL") \
+    .config("spark.jars.packages", "com.redislabs:spark-redis_2.12:3.0.0,org.postgresql:postgresql:42.6.0") \
     .config("spark.sql.streaming.schemaInference", "true") \
     .config("spark.sql.adaptive.enabled", "true") \
     .config("spark.sql.adaptive.coalescePartitions.enabled", "true") \
@@ -171,7 +173,9 @@ try:
     #     .trigger(processingTime='30 seconds') \
     #     .start()
 
-    def write_microbatch_postsgres(data, mbatch_id):
+    def write_microbatch_to_sinks(data, mbatch_id):
+        # Write to PostgreSQL
+        print(f"Writing micro-batch {mbatch_id} to PostgreSQL...")
         data.write \
             .format("jdbc") \
             .option("url", jdbc_link) \
@@ -181,11 +185,24 @@ try:
             .option("driver", connection_info["driver"]) \
             .mode("append") \
             .save()
+        print(f"Micro-batch {mbatch_id} written to PostgreSQL.")
+
+        # Write to Redis
+        print(f"Writing micro-batch {mbatch_id} to Redis...")
+        data.write \
+            .format("org.apache.spark.sql.redis") \
+            .option("host", os.getenv("REDIS_HOST", "redis")) \
+            .option("port", os.getenv("REDIS_PORT", "6379")) \
+            .option("table", "transacoes") \
+            .option("key.column", "id_transacao") \
+            .mode("append") \
+            .save()
+        print(f"Micro-batch {mbatch_id} written to Redis.")
 
     query = final_output \
         .writeStream \
-        .foreachBatch(write_microbatch_postsgres) \
-        .outputMode("update") \
+        .foreachBatch(write_microbatch_to_sinks) \
+        .outputMode("append") \
         .option("checkpointLocation", "/tmp/spark_checkpoint") \
         .start()
 

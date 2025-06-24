@@ -66,6 +66,7 @@ services:
     depends_on:
       - broker
       - producer
+      - redis
     volumes:
       - ./containers/spark-etl:/app
       - ./data:/app/data
@@ -73,6 +74,8 @@ services:
     environment:
       PYTHONUNBUFFERED: 1
       SPARK_MODE: standalone
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
     restart: unless-stopped
 
   postgres:
@@ -93,6 +96,13 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
 
 
   # serviço que faz o populate inicial
