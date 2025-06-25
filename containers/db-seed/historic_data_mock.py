@@ -13,6 +13,8 @@ estados_uf = [
     "RR","SC","SP","SE","TO"
 ]
 
+np.random.seed(42)
+
 def generate_user_data(same_limit_for_all = True):
     """Generate random user data."""
     user_id = str(uuid.uuid4())
@@ -67,9 +69,9 @@ try:
 
             print("Set up completed, access to postgres sql server done")
 
-            cur.execute("""
-                DROP TABLE IF EXISTS transacoes CASCADE;
-            """)
+            # cur.execute("""
+            #     DROP TABLE IF EXISTS transacoes CASCADE;
+            # """)
 
             cur.execute("""
                 DROP TABLE IF EXISTS usuarios CASCADE;
