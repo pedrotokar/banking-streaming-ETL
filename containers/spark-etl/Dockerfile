@@ -17,7 +17,8 @@ ENV PYSPARK_DRIVER_PYTHON=python3
 RUN pip3 install --no-cache-dir --upgrade pip && \
     pip3 install --no-cache-dir \
         kafka-python==2.0.2 \
-        py4j==0.10.9.7
+        py4j==0.10.9.7 \
+        redis
 
 # Criar diretório de JARs (caso não exista)
 RUN mkdir -p /opt/bitnami/spark/jars

@@ -1,6 +1,7 @@
 from pyspark.sql import SparkSession
 from pyspark.sql.types import StructType, StructField, StringType, TimestampType, DoubleType
 import pyspark.sql.functions as F
+import redis
 import os
 
 users_csv = "data/informacoes_cadastro_100k.csv"
@@ -172,6 +173,8 @@ try:
     print("Iniciando stream de saída...")
 
     def write_microbatch_to_sinks(data, mbatch_id):
+        data.persist()
+
         data.write \
             .format("jdbc") \
             .option("url", jdbc_link) \
@@ -194,6 +197,31 @@ try:
             .mode("append") \
             .save()
         print(f"Micro-batch {mbatch_id} written to Redis.")
+
+        # Adiciona os IDs das transações a um Sorted Set para a funcionalidade de 'itens mais recentes'
+        print(f"Adding to Sorted Set in Redis for micro-batch {mbatch_id}...")
+
+        def add_to_sorted_set(partition):
+            # precisa criar aqui dentro pq
+            # o objeto do cliente não é serializável
+            redis_client = redis.Redis(
+                host=os.getenv("REDIS_HOST", "redis"),
+                port=int(os.getenv("REDIS_PORT", "6379")),
+                db=0
+            )
+
+            pipeline = redis_client.pipeline()
+            sorted_set_key = "recent_transactions"
+            for row in partition:
+                transaction_id = row["id_transacao"]
+                timestamp_score = row["data_horario"].timestamp()
+                pipeline.zadd(sorted_set_key, {transaction_id: timestamp_score})
+            pipeline.execute()
+
+        data.select("id_transacao", "data_horario").rdd.foreachPartition(add_to_sorted_set)
+        print(f"Micro-batch {mbatch_id} added to Redis Sorted Set.")
+
+        data.unpersist()
 
     query = final_output \
         .writeStream \
