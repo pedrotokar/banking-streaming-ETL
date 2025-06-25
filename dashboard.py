@@ -2,133 +2,141 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import sqlite3
+from sqlalchemy import create_engine
 from datetime import datetime
 from geopy.distance import geodesic
 import pydeck as pdk
 
-# --- Load Data from SQLite and CSVs ---
+st.set_page_config(
+    page_title="Banking Transaction Dashboard (Live PostgreSQL Data)",
+    initial_sidebar_state="expanded",
+)
+
+# --- Load Data ---
 @st.cache_data
 def load_data():
-    transactions = pd.read_csv("data/transactions/transacoes_100k.csv", parse_dates=["data_horario"])
-    users = pd.read_csv("data/informacoes_cadastro_100k.csv")
+    engine = create_engine("postgresql+psycopg2://bank_etl:ihateavroformat123@localhost:5432/bank")
+    
+    transactions = pd.read_sql("SELECT * FROM transacoes;", engine, parse_dates=["data_horario"])
+    users = pd.read_sql("SELECT * FROM usuarios;", engine)
     regions = pd.read_csv("data/regioes_estados_brasil.csv")
+
     return transactions, users, regions
 
+
+# --- Preprocess Data ---
+def preprocess_data(transactions, users, regions):
+    users = users.rename(columns={"id_regiao": "region_id_u"})
+    transactions = transactions.rename(columns={"id_regiao": "region_id_t"})
+
+    df = transactions.merge(users, left_on="id_usuario_pagador", right_on="id_usuario", how="left")
+
+    df = df.merge(
+        regions.rename(columns={"id_regiao": "region_id_t", "latitude": "lat_t", "longitude": "lon_t"}),
+        on="region_id_t", how="left"
+    ).merge(
+        regions.rename(columns={"id_regiao": "region_id_u", "latitude": "lat_u", "longitude": "lon_u"}),
+        on="region_id_u", how="left"
+    )
+
+    df["hour"] = df["data_horario"].dt.hour
+    df["rounded_hour"] = df["data_horario"].dt.floor("h")
+
+    # Distance calculation
+    bins = [0, 50, 300, 1000, np.inf]
+    labels = ["<50km", "50-300km", "300-1000km", ">1000km"]
+    df["distance_km"] = df.apply(
+        lambda row: geodesic((row["lat_u"], row["lon_u"]), (row["lat_t"], row["lon_t"])).km
+        if pd.notnull(row["lat_u"]) and pd.notnull(row["lat_t"]) else np.nan,
+        axis=1
+    )
+    df["distance_bucket"] = pd.cut(df["distance_km"], bins=bins, labels=labels)
+
+    # Frequency score
+    freq = df.groupby(["id_usuario_pagador", "rounded_hour"]).size().reset_index(name="frequency")
+    df = df.merge(freq, on=["id_usuario_pagador", "rounded_hour"], how="left")
+    df["frequency_score"] = np.select(
+        [df["frequency"] <= 3, df["frequency"].between(4, 10), df["frequency"] > 10],
+        [0, 0.5, 1]
+    )
+
+    # Z-score transaction value
+    stats = df.groupby("id_usuario_pagador")["valor_transacao"].agg(['mean', 'std']).reset_index()
+    df = df.merge(stats, on="id_usuario_pagador", how="left")
+    df["z_score"] = (df["valor_transacao"] - df["mean"]) / df["std"]
+
+    # Time score
+    df["time_score"] = abs(df["hour"] - 12) / 12
+
+    # Denial reasons
+    for m in ["PIX", "TED", "DOC", "Boleto"]:
+        df[f"exceed_limit_{m.lower()}"] = (df["modalidade_pagamento"] == m) & (df["valor_transacao"] > df[f"limite_{m.lower()}"])
+    df["denied_by_limit"] = df[[f"exceed_limit_{m.lower()}" for m in ["PIX", "TED", "DOC", "Boleto"]]].any(axis=1)
+    df["denied_by_balance"] = df["valor_transacao"] > df["saldo"]
+
+    return df
+
+
+# --- Load and Prepare ---
 transactions, users, regions = load_data()
+df = preprocess_data(transactions, users, regions)
 
 
-# --- Merge Data ---
-users = users.rename(columns={"id_regiao": "id_regiao_u"})
-regions_r = regions.rename(columns={"id_regiao": "id_regiao_r"})
+# --- Streamlit UI ---
+st.sidebar.header("Filters")
+selected_types = st.sidebar.multiselect("Payment Types", df["modalidade_pagamento"].unique(), default=list(df["modalidade_pagamento"].unique()))
+hour_range = st.sidebar.slider("Hour Range", 0, 23, (0, 23))
 
-transactions = transactions.rename(columns={"id_regiao": "id_regiao_t"})
-
-# Join transactions with user data
-merged_df = transactions.merge(users, left_on="id_usuario_pagador", right_on="id_usuario", how="left")
-# Join with region data (transaction region)
-merged_df = merged_df.merge(regions.rename(columns={
-    "id_regiao": "id_regiao_t",
-    "latitude": "latitude_t",
-    "longitude": "longitude_t"
-}), on="id_regiao_t", how="left")
-# Join with region data (user region)
-merged_df = merged_df.merge(regions.rename(columns={
-    "id_regiao": "id_regiao_u",
-    "latitude": "latitude_u",
-    "longitude": "longitude_u"
-})[["id_regiao_u", "latitude_u", "longitude_u"]], on="id_regiao_u", how="left")
-
-# --- Add Additional Columns ---
-merged_df["hora"] = merged_df["data_horario"].dt.hour
-merged_df["t7_score"] = (merged_df["hora"] - 12) / 12
-
-# Fake approval flag for testing
-np.random.seed(42)
-merged_df["aprovada"] = np.random.choice([True, False], size=len(merged_df), p=[0.8, 0.2])
-
-# Compute distances
-merged_df["distancia_km"] = merged_df.apply(lambda row: geodesic(
-    (row["latitude_u"], row["longitude_u"]),
-    (row["latitude_t"], row["longitude_t"])
-).km if pd.notnull(row["latitude_u"]) and pd.notnull(row["latitude_t"]) else np.nan, axis=1)
-
-# Distance category
-bins = [0, 50, 300, 1000, np.inf]
-labels = ["<50km", "50-300km", "300-1000km", ">1000km"]
-merged_df["faixa_distancia"] = pd.cut(merged_df["distancia_km"], bins=bins, labels=labels)
-
-# --- Sidebar Filters ---
-st.sidebar.title("Filters")
-st.sidebar.markdown("Filter by transaction type or hour")
-trans_types = st.sidebar.multiselect("Transaction Type", merged_df["modalidade_pagamento"].unique(), default=merged_df["modalidade_pagamento"].unique())
-hour_range = st.sidebar.slider("Hour of Day", 0, 23, (0, 23))
-
-filtered_df = merged_df[
-    (merged_df["modalidade_pagamento"].isin(trans_types)) &
-    (merged_df["hora"] >= hour_range[0]) & (merged_df["hora"] <= hour_range[1])
+filtered_df = df[
+    (df["modalidade_pagamento"].isin(selected_types)) &
+    (df["hour"].between(hour_range[0], hour_range[1]))
 ]
 
-# --- Main ---
-st.title("Banking Transaction Dashboard")
-st.markdown("Visual insights into approvals, risk scores, and user behavior")
+# --- Analyses ---
 
-# 1. Approval Overview
-st.subheader("1. Transaction Approvals")
-st.bar_chart(filtered_df["aprovada"].value_counts())
+# 1
+st.subheader("1. Transaction Approval Overview")
+st.bar_chart(filtered_df["transacao_aprovada"].value_counts())
 
-# 2. Hourly Frequency
-st.subheader("2. Transactions by Hour")
-hour_freq = merged_df.groupby("hora").size()
-st.line_chart(hour_freq)
+# 2
+st.subheader("2. Risk Score (Value) vs Approval")
+st.scatter_chart(filtered_df[["valor_transacao", "transacao_aprovada"]])
 
-# 3. Time Risk vs Approval
-st.subheader("3. Hourly Risk vs Approval")
-st.scatter_chart(merged_df[["t7_score", "aprovada"]])
+# 3
+st.subheader("3. Risk Score (Time) vs Approval")
+st.scatter_chart(filtered_df[["time_score", "transacao_aprovada"]])
 
-# 4. Geographic Distance Analysis
-st.subheader("4. Geographic Distance vs Approval")
-dist_group = merged_df.groupby(["faixa_distancia", "aprovada"], observed=False).size().unstack(fill_value=0)
-st.bar_chart(dist_group)
+# 4
+st.subheader("4. Region vs Approval Rate")
+st.bar_chart(filtered_df.groupby("region_id_t")["transacao_aprovada"].mean())
 
-# 5. Denials by Transfer Type
-st.subheader("5. Denied Transactions by Type")
-denied_by_type = merged_df[merged_df["aprovada"] == False].groupby("modalidade_pagamento").size()
-st.bar_chart(denied_by_type)
+# 5
+st.subheader("5. Denials by Balance and Limit")
+denial_counts = pd.DataFrame({
+    "Limit": filtered_df["denied_by_limit"].sum(),
+    "Balance": filtered_df["denied_by_balance"].sum()
+}, index=["Count"])
+st.bar_chart(denial_counts.T)
 
-# 6. Frequency Score per User
-st.subheader("6. User Frequency Score")
-merged_df["rounded_hour"] = merged_df["data_horario"].dt.floor("h")
-freqs = merged_df.groupby(["id_usuario_pagador", "rounded_hour"], observed=False).size().reset_index(name="frequency")
-conditions = [
-    freqs["frequency"] <= 3,
-    freqs["frequency"].between(4, 10),
-    freqs["frequency"] > 10
-]
-scores = [0, 0.5, 1]
-freqs["frequency_score"] = np.select(conditions, scores)
-st.dataframe(freqs.sort_values("frequency", ascending=False).head(10))
+# 6
+st.subheader("6. Denied Transactions by Payment Type")
+denied_type_counts = filtered_df[filtered_df["transacao_aprovada"] == False].groupby("modalidade_pagamento").size()
+st.bar_chart(denied_type_counts)
 
-# 7. Region Map
-st.subheader("7. Regional Transaction Map")
-region_display = regions.copy()
-region_display["lat"] = region_display["latitude"]
-region_display["lon"] = region_display["longitude"]
-st.pydeck_chart(pdk.Deck(
-    map_style='mapbox://styles/mapbox/light-v9',
-    initial_view_state=pdk.ViewState(
-        latitude=region_display["lat"].mean(),
-        longitude=region_display["lon"].mean(),
-        zoom=3,
-        pitch=0,
-    ),
-    layers=[
-        pdk.Layer(
-            "ScatterplotLayer",
-            data=region_display,
-            get_position='[lon, lat]',
-            get_color='[200, 30, 0, 160]',
-            get_radius=20000,
-        ),
-    ],
-))
+# 7
+st.subheader("7. Hourly Transaction Frequency")
+st.line_chart(df.groupby("hour").size())
+
+# 8
+st.subheader("8. Frequency Score vs Approval")
+st.line_chart(df.groupby("frequency_score")["transacao_aprovada"].mean())
+
+# 9
+st.subheader("9. Transaction Value Z-score Outliers")
+outliers = filtered_df[filtered_df["z_score"].abs() > 3]
+st.dataframe(outliers[["id_usuario_pagador", "valor_transacao", "z_score"]].head(10))
+
+# 10
+st.subheader("10. Geographic Distance vs Approval")
+distance_vs_approval = filtered_df.groupby(["distance_bucket", "transacao_aprovada"], observed=False).size().unstack(fill_value=0)
+st.bar_chart(distance_vs_approval)
