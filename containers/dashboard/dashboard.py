@@ -111,35 +111,50 @@ def df_from_redis(_redis_client, count):
         df = df.reindex(sorted(df.columns), axis=1)
         
         if not df.empty:
-            numeric_cols = ['valor_transacao', 'latencia_total_ms', 'tempo_processamento_ms']
+            numeric_cols = ["valor_transacao", "latencia_total_ms", "tempo_processamento_ms"]
             for col in numeric_cols:
                 if col in df.columns:
-                    df[col] = pd.to_numeric(df[col], errors='coerce')
+                    df[col] = pd.to_numeric(df[col], errors="coerce")
             
-            datetime_cols = ['data_horario', 'tempo_saida_resultado', 'tempo_entrada_kafka', 'tempo_inicio_processamento']
+            datetime_cols = ["data_horario", "tempo_saida_resultado", "tempo_entrada_kafka", "tempo_inicio_processamento"]
             for col in datetime_cols:
                  if col in df.columns:
-                    df[col] = pd.to_datetime(df[col], errors='coerce', utc=True)
+                    df[col] = pd.to_datetime(df[col], errors="coerce", utc=True)
 
-            if 'transacao_aprovada' in df.columns:
-                df['transacao_aprovada'] = df['transacao_aprovada'].apply(lambda x: x.lower() == 'true' if isinstance(x, str) else bool(x))
+            if "transacao_aprovada" in df.columns:
+                df["transacao_aprovada"] = df["transacao_aprovada"].apply(lambda x: x.lower() == "true" if isinstance(x, str) else bool(x))
         return df
 
     except Exception as e:
         st.error(f"Erro ao buscar dados do Redis: {e}")
         return pd.DataFrame()
 
-@st.cache_data(ttl="1d")
+@st.cache_data(ttl="1")
 def load_data():
     transactions = pd.read_sql("SELECT * FROM transacoes;", ENGINE, parse_dates=["data_horario"])
+    transactions_scores = pd.read_sql("SELECT * FROM transacoes_scores;", ENGINE)
     users = pd.read_sql("SELECT * FROM usuarios;", ENGINE)
     regions = pd.read_csv("data/regioes_estados_brasil.csv")
 
-    return transactions, users, regions
+    if not transactions.empty:
+        uuid_cols_t = ["id_transacao", "id_usuario_pagador", "id_usuario_recebedor"]
+        for col in uuid_cols_t:
+            if col in transactions.columns and transactions[col].dtype == 'object':
+                transactions[col] = transactions[col].astype(str)
+
+    if not transactions_scores.empty:
+        if "id_transacao" in transactions_scores.columns and transactions_scores["id_transacao"].dtype == 'object':
+            transactions_scores["id_transacao"] = transactions_scores["id_transacao"].astype(str)
+
+    if not users.empty:
+        if "id_usuario" in users.columns and users["id_usuario"].dtype == 'object':
+            users["id_usuario"] = users["id_usuario"].astype(str)
+
+    return transactions, transactions_scores, users, regions
 
 
 # --- Preprocess Data ---
-def preprocess_data(transactions, users, regions):
+def preprocess_data(transactions, transactions_scores, users, regions):
     users = users.rename(columns={"id_regiao": "region_id_u"})
     transactions = transactions.rename(columns={"id_regiao": "region_id_t"})
 
@@ -151,6 +166,9 @@ def preprocess_data(transactions, users, regions):
     ).merge(
         regions.rename(columns={"id_regiao": "region_id_u", "latitude": "lat_u", "longitude": "lon_u"}),
         on="region_id_u", how="left"
+    ).merge(
+        transactions_scores,
+        on="id_transacao", how="left"
     )
 
     df["hour"] = df["data_horario"].dt.hour
@@ -175,7 +193,7 @@ def preprocess_data(transactions, users, regions):
     )
 
     # Z-score transaction value
-    stats = df.groupby("id_usuario_pagador")["valor_transacao"].agg(['mean', 'std']).reset_index()
+    stats = df.groupby("id_usuario_pagador")["valor_transacao"].agg(["mean", "std"]).reset_index()
     df = df.merge(stats, on="id_usuario_pagador", how="left")
     df["z_score"] = (df["valor_transacao"] - df["mean"]) / df["std"]
 
@@ -193,9 +211,9 @@ def preprocess_data(transactions, users, regions):
 
 
 # --- Load and Prepare ---
-transactions, users, regions = load_data()
+transactions, transactions_scores, users, regions = load_data()
 if not transactions.empty:
-    df = preprocess_data(transactions, users, regions)
+    df = preprocess_data(transactions, transactions_scores, users, regions)
 else:
     df = pd.DataFrame()
 
@@ -298,7 +316,7 @@ if not filtered_df.empty:
 
     # 2
     st.subheader("2. Score de Risco (Valor) vs Aprovação")
-    st.scatter_chart(filtered_df, x="valor_transacao", y="transacao_aprovada")
+    st.scatter_chart(filtered_df, x="valor_transacao", y="t5_score")
 
     # 3
     st.subheader("3. Score de Risco (Tempo) vs Aprovação")
