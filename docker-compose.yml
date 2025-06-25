@@ -122,6 +122,26 @@ services:
       DB_PASS: ihateavroformat123
     restart: "no"           
 
+  dashboard:
+    build: ./containers/dashboard
+    container_name: dashboard
+    depends_on:
+      - redis
+      - postgres
+    volumes:
+      - ./data:/app/data
+    ports:
+      - "8501:8501"
+    environment:
+      PYTHONUNBUFFERED: 1
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      DB_HOST: postgres 
+      DB_PORT: 5432
+      DB_NAME: bank
+      DB_USER: bank_etl
+      DB_PASS: ihateavroformat123
+    restart: unless-stopped
 
 volumes:
   postgres_data:

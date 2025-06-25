@@ -3,7 +3,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from sqlalchemy import create_engine, URL
-from datetime import datetime
+from datetime import datetime, date
 from geopy.distance import geodesic
 import pydeck as pdk
 import os
@@ -14,13 +14,25 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+st.markdown(
+    """
+    <style>
+        [data-testid="stDecoration"] {
+            display: none;
+        }
+
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
 REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
 
 POSTGRES_DB       = os.getenv("POSTGRES_DB", "bank")
 POSTGRES_USER     = os.getenv("POSTGRES_USER", "bank_etl")
-POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "ihateavroformat123")
-POSTGRES_HOST     = os.getenv("POSTGRES_HOST", "localhost")
+POSTGRES_PASSWORD = os.getenv("POSTGRES_PASS", "ihateavroformat123")
+POSTGRES_HOST     = os.getenv("POSTGRES_HOST", "postgres")
 POSTGRES_PORT     = os.getenv("POSTGRES_PORT", "5432")
 
 def get_redis_connection():
@@ -136,9 +148,12 @@ filtered_df = df[
     (df["hour"].between(hour_range[0], hour_range[1]))
 ]
 
+
+today = date.today()
+
+st.write(today)
+
 # --- Analyses ---
-
-
 
 # 1
 st.subheader("1. Transaction Approval Overview")
