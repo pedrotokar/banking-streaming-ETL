@@ -77,11 +77,11 @@ try:
 
     users = users.withColumnRenamed("id_regiao", "id_regiao_u")
 
-    regions = spark.read \
-        .option("header", "true") \
-        .option("inferSchema", "true") \
-        .csv(regions_csv) \
-        .cache()
+    regions = spark.read.jdbc(
+        url = jdbc_link,
+        table = "regioes",
+        properties = connection_info
+    ).cache()
 
     print("Dados estáticos carregados!")
 
