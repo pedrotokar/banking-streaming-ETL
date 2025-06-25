@@ -1,6 +1,10 @@
+import pyspark
 from pyspark.sql import SparkSession
 from pyspark.sql.types import StructType, StructField, StringType, TimestampType, DoubleType
+from pyspark.sql.streaming.state import GroupState, GroupStateTimeout
 import pyspark.sql.functions as F
+
+print(f"======Iniciando PySpark versão {pyspark.__version__}=======")
 
 users_csv = "data/informacoes_cadastro_100k.csv"
 regions_csv = "data/regioes_estados_brasil.csv"
@@ -26,7 +30,65 @@ schema = StructType([
     StructField("valor_transacao", DoubleType(), True)
 ])
 
+state_output_schema = StructType([
+    StructField("id_transacao", StringType(), True),
+    StructField("id_usuario_pagador", StringType(), True),
+    StructField("id_usuario_recebedor", StringType(), True),
+    StructField("id_regiao_t", StringType(), True),
+    StructField("modalidade_pagamento", StringType(), True),
+    StructField("data_horario", TimestampType(), True),
+    StructField("valor_transacao", DoubleType(), True),
+    StructField("kafka_timestamp", TimestampType(), True),
+    StructField("tempo_inicio_processamento", TimestampType(), True),
+    StructField("id_usuario", StringType(), True),
+    StructField("id_regiao_u", StringType(), True),
+    StructField("saldo", DoubleType(), True),
+    StructField("limite_pix", DoubleType(), True),
+    StructField("limite_ted", DoubleType(), True),
+    StructField("limite_doc", DoubleType(), True),
+    StructField("limite_boleto", DoubleType(), True),
+    StructField("data_ultima_transacao", TimestampType(), True),
+    StructField("created_at", TimestampType(), True)
+])
+
+state_schema = StructType([
+    StructField("data_ultima_transacao", TimestampType(), True)
+])
+
 print("Iniciando leitura do stream Kafka...")
+
+#=========
+def state_function(key, df_iter, state: GroupState):
+    """Essa função vai garantir que não vamos processar transações que chegaram
+    em microbatches atrasados depois de uma transacao mais recente ser processada.
+    Isso garante indempotencia, já que se o Spark Structured Streaming mandar a
+    mesma transacao de novo, ela não será processada."""
+
+#    user_id = key[0]
+#    print("usuario id", user_id)
+
+    if not state.exists:
+        state_timestamp = None #vai pegar da linha
+        most_recent_timestamp = None
+    else:
+        state_timestamp = state.get[0] #state atual pra não ficar dando get
+        most_recent_timestamp = state.get[0] #qual vai ser a transacao mais recente do microbatch
+
+    for df in df_iter:
+        if state_timestamp is None:
+            state_timestamp = df.loc[0, "data_ultima_transacao"]
+            most_recent_timestamp = df.loc[0, "data_ultima_transacao"]
+#           print(df["data_horario"], state_timestamp, (df["data_horario"] >= state_timestamp).sum())
+        df = df.loc[df["data_horario"] >= state_timestamp]
+        if not df.empty:
+#           print(df.columns)
+            most_recent_timestamp = max(most_recent_timestamp, df["data_horario"].max())
+            yield df
+
+    if most_recent_timestamp > state_timestamp:
+        state.update((most_recent_timestamp,))
+    state.setTimeoutDuration(36 * 1e5)
+#=========
 
 try:
     kafka_messages = spark \
@@ -70,7 +132,12 @@ try:
         url = jdbc_link,
         table = "usuarios",
         properties = connection_info
-    ).cache()
+    ).withColumn("saldo", F.col("saldo").astype("double")) \
+    .withColumn("limite_pix", F.col("limite_pix").astype("double")) \
+    .withColumn("limite_ted", F.col("limite_ted").astype("double")) \
+    .withColumn("limite_doc", F.col("limite_doc").astype("double")) \
+    .withColumn("limite_boleto", F.col("limite_boleto").astype("double")) \
+    .cache()
 
     users = users.withColumnRenamed("id_regiao", "id_regiao_u")
 
@@ -87,6 +154,13 @@ try:
         users,
         streaming_transactions["id_usuario_pagador"] == users["id_usuario"],
         how="left"
+    )
+    transactions_users = transactions_users.groupBy("id_usuario_pagador").applyInPandasWithState(
+        state_function,
+        state_output_schema,
+        state_schema,
+        "update",
+        GroupStateTimeout.ProcessingTimeTimeout
     )
 
     # Preparar regiões para joins múltiplos
@@ -127,9 +201,6 @@ try:
         "score_aprovado",
         F.when(F.col("score_medio") > 6, False).otherwise(True)
     ).withColumn(
-        "saldo_aprovado",
-        F.when(F.col("saldo") > F.col("valor_transacao"), True).otherwise(False)
-    ).withColumn(
         "limite_aprovado",
         F.when(
             F.col("modalidade_pagamento") == "PIX",
@@ -143,6 +214,9 @@ try:
         ).otherwise(
             F.when(F.col("valor_transacao") > F.col("limite_DOC"), False).otherwise(True)
         )
+    ).withColumn(
+        "saldo_aprovado",
+        F.when(F.col("saldo") > F.col("valor_transacao"), True).otherwise(False)
     ).withColumn(
         "transacao_aprovada",
         F.col("score_aprovado") & F.col("saldo_aprovado") & F.col("limite_aprovado")
@@ -185,7 +259,22 @@ try:
             print(f"Latência mínima: {stats['latencia_minima_ms']:.2f}ms")
             print(f"Latência máxima: {stats['latencia_maxima_ms']:.2f}ms")
             print("=" * 40)
-        
+
+        #Coloca os horários das últimas transações na db pra não se perder e ficar só nos estados do spark.
+        updates_horarios = data.groupBy("id_usuario_pagador").agg(
+            F.max("data_horario").alias("data_ultima_transacao")
+        ).withColumnRenamed("id_usuario_pagador", "id_usuario")
+
+        updates_horarios.write \
+            .format("jdbc") \
+            .option("url", jdbc_link) \
+            .option("dbtable", "staging_updates_usuarios") \
+            .option("user", connection_info["user"]) \
+            .option("password", connection_info["password"]) \
+            .option("driver", connection_info["driver"]) \
+            .mode("overwrite") \
+            .save()
+
         data.write \
             .format("jdbc") \
             .option("url", jdbc_link) \
@@ -211,7 +300,7 @@ try:
         "latencia_total_ms",
         "tempo_processamento_ms"
     ).writeStream \
-        .outputMode("append") \
+        .outputMode("update") \
         .format("console") \
         .option("truncate", "false") \
         .option("numRows", "5") \

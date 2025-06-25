@@ -96,9 +96,9 @@ def generate_transaction(usuarios):
     # if valor > pagador[limite_key]:
     #     valor = round(pagador[limite_key] * np.random.random(), 2)
     
-    data_horario = int((datetime.now() - timedelta(
-        seconds=int(np.random.rand() * 86400 * 365)
-    )).timestamp() * 1000)
+    data_horario = (datetime.now() - timedelta(
+        seconds = int((np.random.rand() - 0.5) * 60)
+    )).isoformat()
     
     transaction = {
         'id_transacao': str(uuid.uuid4()),

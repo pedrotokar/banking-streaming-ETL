@@ -26,6 +26,7 @@ def create_database_schema(cursor):
             limite_TED NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
             limite_DOC NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
             limite_Boleto NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
+            data_ultima_transacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
     """)
@@ -45,6 +46,12 @@ def create_database_schema(cursor):
             latencia_total_ms BIGINT,
             tempo_processamento_ms BIGINT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS staging_updates_usuarios (
+            id_usuario UUID PRIMARY KEY REFERENCES usuarios(id_usuario),
+            data_ultima_transacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
     """)
     # Criar indices
