@@ -214,11 +214,11 @@ try:
             sorted_set_key = "recent_transactions"
             for row in partition:
                 transaction_id = row["id_transacao"]
-                timestamp_score = row["data_horario"].timestamp()
+                timestamp_score = row["tempo_saida_resultado"].timestamp()
                 pipeline.zadd(sorted_set_key, {transaction_id: timestamp_score})
             pipeline.execute()
 
-        data.select("id_transacao", "data_horario").rdd.foreachPartition(add_to_sorted_set)
+        data.select("id_transacao", "tempo_saida_resultado").rdd.foreachPartition(add_to_sorted_set)
         print(f"Micro-batch {mbatch_id} added to Redis Sorted Set.")
 
         data.unpersist()

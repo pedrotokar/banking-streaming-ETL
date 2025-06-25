@@ -14,25 +14,47 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-st.markdown(
-    """
+hide_streamlit_style = """
     <style>
-        [data-testid="stDecoration"] {
-            display: none;
+        div[data-testid="stToolbar"] {
+            visibility: hidden;
+            height: 0%;
+            position: fixed;
         }
-
+        div[data-testid="stDecoration"] {
+            visibility: hidden;
+            height: 0%;
+            position: fixed;
+        }
+        div[data-testid="stStatusWidget"] {
+            visibility: hidden;
+            height: 0%;
+            position: fixed;
+        }
+        #MainMenu {
+            visibility: hidden;
+            height: 0%;
+        }
+        header {
+            visibility: hidden;
+            height: 0%;
+        }
+        footer {
+            visibility: hidden;
+            height: 0%;
+        }
     </style>
-    """,
-    unsafe_allow_html=True
-)
+"""
+st.markdown(hide_streamlit_style, unsafe_allow_html=True)
+
 
 REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
-REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
+REDIS_PORT = int(os.getenv("REDIS_PORT", "6379"))
 
 POSTGRES_DB       = os.getenv("POSTGRES_DB", "bank")
 POSTGRES_USER     = os.getenv("POSTGRES_USER", "bank_etl")
 POSTGRES_PASSWORD = os.getenv("POSTGRES_PASS", "ihateavroformat123")
-POSTGRES_HOST     = os.getenv("POSTGRES_HOST", "postgres")
+POSTGRES_HOST     = os.getenv("POSTGRES_HOST", "localhost")
 POSTGRES_PORT     = os.getenv("POSTGRES_PORT", "5432")
 
 def get_redis_connection():
@@ -66,6 +88,46 @@ def get_postgres_connection():
 
 # --- Load Data ---
 ENGINE = get_postgres_connection()
+REDIS_CLIENT = get_redis_connection()
+
+@st.cache_data(ttl=1)
+def df_from_redis(_redis_client, count):
+    """Carrega as transações mais recentes do Redis."""
+    if not _redis_client:
+        return pd.DataFrame()
+    try:
+        recent_ids = _redis_client.zrevrange("recent_transactions", 0, count -1)
+
+        if not recent_ids:
+            return pd.DataFrame()
+
+        pipeline = _redis_client.pipeline()
+        for transaction_id in recent_ids:
+            pipeline.hgetall(f"transacoes:{transaction_id}")
+        
+        transaction_details = pipeline.execute()
+
+        df = pd.DataFrame(transaction_details)
+        df = df.reindex(sorted(df.columns), axis=1)
+        
+        if not df.empty:
+            numeric_cols = ['valor_transacao', 'latencia_total_ms', 'tempo_processamento_ms']
+            for col in numeric_cols:
+                if col in df.columns:
+                    df[col] = pd.to_numeric(df[col], errors='coerce')
+            
+            datetime_cols = ['data_horario', 'tempo_saida_resultado', 'tempo_entrada_kafka', 'tempo_inicio_processamento']
+            for col in datetime_cols:
+                 if col in df.columns:
+                    df[col] = pd.to_datetime(df[col], errors='coerce', utc=True)
+
+            if 'transacao_aprovada' in df.columns:
+                df['transacao_aprovada'] = df['transacao_aprovada'].apply(lambda x: x.lower() == 'true' if isinstance(x, str) else bool(x))
+        return df
+
+    except Exception as e:
+        st.error(f"Erro ao buscar dados do Redis: {e}")
+        return pd.DataFrame()
 
 @st.cache_data
 def load_data():
@@ -131,22 +193,38 @@ def preprocess_data(transactions, users, regions):
 
 
 
-
-get_redis_connection()
-
 # --- Load and Prepare ---
 transactions, users, regions = load_data()
-df = preprocess_data(transactions, users, regions)
+if not transactions.empty:
+    df = preprocess_data(transactions, users, regions)
+else:
+    df = pd.DataFrame()
 
 # --- Streamlit UI ---
-st.sidebar.header("Filters")
-selected_types = st.sidebar.multiselect("Payment Types", df["modalidade_pagamento"].unique(), default=list(df["modalidade_pagamento"].unique()))
-hour_range = st.sidebar.slider("Hour Range", 0, 23, (0, 23))
+st.sidebar.header("Redis Live View")
+num_recent_transactions = st.sidebar.slider(
+    "Recent Transactions",
+    min_value=5,
+    max_value=100,
+    value=10,
+    step=5
+)
 
-filtered_df = df[
-    (df["modalidade_pagamento"].isin(selected_types)) &
-    (df["hour"].between(hour_range[0], hour_range[1]))
-]
+st.sidebar.divider()
+st.sidebar.header("PostgreSQL Filters")
+
+if not df.empty:
+    selected_types = st.sidebar.multiselect("Payment Types", df["modalidade_pagamento"].unique(), default=list(df["modalidade_pagamento"].unique()))
+    hour_range = st.sidebar.slider("Hour Range", 0, 23, (0, 23))
+
+    filtered_df = df[
+        (df["modalidade_pagamento"].isin(selected_types)) &
+        (df["hour"].between(hour_range[0], hour_range[1]))
+    ]
+else:
+    st.sidebar.warning("No historical data in PostgreSQL to filter.")
+    filtered_df = pd.DataFrame()
+
 
 
 today = date.today()
@@ -155,49 +233,75 @@ st.write(today)
 
 # --- Analyses ---
 
-# 1
-st.subheader("1. Transaction Approval Overview")
-st.bar_chart(filtered_df["transacao_aprovada"].value_counts())
+last_mean_value = 0
+last_mean_latency = 0
 
-# 2
-st.subheader("2. Risk Score (Value) vs Approval")
-st.scatter_chart(filtered_df[["valor_transacao", "transacao_aprovada"]])
+@st.fragment(run_every="2s")
+def live():
+    if REDIS_CLIENT:
+        df = df_from_redis(REDIS_CLIENT, num_recent_transactions)
 
-# 3
-st.subheader("3. Risk Score (Time) vs Approval")
-st.scatter_chart(filtered_df[["time_score", "transacao_aprovada"]])
+        if not df.empty:
+            st.subheader(f"Exibindo as {len(df)} Transações Mais Recentes")
+            st.dataframe(df)
+        else:
+            st.info("Nenhum dado no Redis.")
+    else:
+        st.warning("Não foi possível conectar ao Redis.")
 
-# 4
-st.subheader("4. Region vs Approval Rate")
-st.bar_chart(filtered_df.groupby("region_id_t")["transacao_aprovada"].mean())
 
-# 5
-st.subheader("5. Denials by Balance and Limit")
-denial_counts = pd.DataFrame({
-    "Limit": filtered_df["denied_by_limit"].sum(),
-    "Balance": filtered_df["denied_by_balance"].sum()
-}, index=["Count"])
-st.bar_chart(denial_counts.T)
+st.header("Live Transactions from Redis")
+live()
 
-# 6
-st.subheader("6. Denied Transactions by Payment Type")
-denied_type_counts = filtered_df[filtered_df["transacao_aprovada"] == False].groupby("modalidade_pagamento").size()
-st.bar_chart(denied_type_counts)
+st.divider()
+st.header("Historical Analysis from PostgreSQL")
 
-# 7
-st.subheader("7. Hourly Transaction Frequency")
-st.line_chart(df.groupby("hour").size())
+if not filtered_df.empty:
+    # 1
+    st.subheader("1. Visão Geral de Aprovação de Transações")
+    st.bar_chart(filtered_df["transacao_aprovada"].value_counts())
 
-# 8
-st.subheader("8. Frequency Score vs Approval")
-st.line_chart(df.groupby("frequency_score")["transacao_aprovada"].mean())
+    # 2
+    st.subheader("2. Score de Risco (Valor) vs Aprovação")
+    st.scatter_chart(filtered_df[["valor_transacao", "transacao_aprovada"]])
 
-# 9
-st.subheader("9. Transaction Value Z-score Outliers")
-outliers = filtered_df[filtered_df["z_score"].abs() > 3]
-st.dataframe(outliers[["id_usuario_pagador", "valor_transacao", "z_score"]].head(10))
+    # 3
+    st.subheader("3. Score de Risco (Tempo) vs Aprovação")
+    st.scatter_chart(filtered_df[["time_score", "transacao_aprovada"]])
 
-# 10
-st.subheader("10. Geographic Distance vs Approval")
-distance_vs_approval = filtered_df.groupby(["distance_bucket", "transacao_aprovada"], observed=False).size().unstack(fill_value=0)
-st.bar_chart(distance_vs_approval)
+    # 4
+    st.subheader("4. Região vs Taxa de Aprovação")
+    st.bar_chart(filtered_df.groupby("region_id_t")["transacao_aprovada"].mean())
+
+    # 5
+    st.subheader("5. Negações por Saldo e Limite")
+    denial_counts = pd.DataFrame({
+        "Limite": filtered_df["denied_by_limit"].sum(),
+        "Saldo": filtered_df["denied_by_balance"].sum()
+    }, index=["Contagem"])
+    st.bar_chart(denial_counts.T)
+
+    # 6
+    st.subheader("6. Transações Negadas por Tipo de Pagamento")
+    denied_type_counts = filtered_df[filtered_df["transacao_aprovada"] == False].groupby("modalidade_pagamento").size()
+    st.bar_chart(denied_type_counts)
+
+    # 7
+    st.subheader("7. Frequência de Transações por Hora")
+    st.line_chart(df.groupby("hour").size())
+
+    # 8
+    st.subheader("8. Score de Frequência vs Aprovação")
+    st.line_chart(df.groupby("frequency_score")["transacao_aprovada"].mean())
+
+    # 9
+    st.subheader("9. Outliers de Valor de Transação (Z-score)")
+    outliers = filtered_df[filtered_df["z_score"].abs() > 3]
+    st.dataframe(outliers[["id_usuario_pagador", "valor_transacao", "z_score"]].head(10))
+
+    # 10
+    st.subheader("10. Distância Geográfica vs Aprovação")
+    distance_vs_approval = filtered_df.groupby(["distance_bucket", "transacao_aprovada"], observed=False).size().unstack(fill_value=0)
+    st.bar_chart(distance_vs_approval)
+else:
+    st.info("Não há dados no PostgreSQL.")
