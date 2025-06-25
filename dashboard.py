@@ -2,23 +2,64 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, URL
 from datetime import datetime
 from geopy.distance import geodesic
 import pydeck as pdk
+import os
+import redis
 
 st.set_page_config(
     page_title="Banking Transaction Dashboard (Live PostgreSQL Data)",
     initial_sidebar_state="expanded",
 )
 
+REDIS_HOST = os.getenv("REDIS_HOST", "localhost")
+REDIS_PORT = int(os.getenv("REDIS_PORT", 6379))
+
+POSTGRES_DB       = os.getenv("POSTGRES_DB", "bank")
+POSTGRES_USER     = os.getenv("POSTGRES_USER", "bank_etl")
+POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "ihateavroformat123")
+POSTGRES_HOST     = os.getenv("POSTGRES_HOST", "localhost")
+POSTGRES_PORT     = os.getenv("POSTGRES_PORT", "5432")
+
+def get_redis_connection():
+    """Estabelece conexão com o Redis."""
+    try:
+        r = redis.Redis(host=REDIS_HOST, port=REDIS_PORT, db=0, decode_responses=True)
+        r.ping()
+        st.toast("Conexão com Redis bem-sucedida!")
+        return r
+    except redis.exceptions.ConnectionError as e:
+        st.error(f"Não foi possível conectar ao Redis: {e}")
+        return None
+
+def get_postgres_connection():
+    """Estabelece conexão com o PostgreSQL."""
+    try:
+        url_obj = URL.create(
+            "postgresql+psycopg2",
+            username=POSTGRES_USER,
+            password=POSTGRES_PASSWORD,
+            host=POSTGRES_HOST,
+            database=POSTGRES_DB,
+            port=POSTGRES_PORT,
+        )
+        engine = create_engine(url_obj)
+        st.toast("Conexão com PostgreSQL bem-sucedida!")
+        return engine
+    except Exception as e:
+        st.error(f"Não foi possível conectar ao PostgreSQL: {e}")
+        return None
+
 # --- Load Data ---
+ENGINE = get_postgres_connection()
+
 @st.cache_data
 def load_data():
-    engine = create_engine("postgresql+psycopg2://bank_etl:ihateavroformat123@localhost:5432/bank")
-    
-    transactions = pd.read_sql("SELECT * FROM transacoes;", engine, parse_dates=["data_horario"])
-    users = pd.read_sql("SELECT * FROM usuarios;", engine)
+
+    transactions = pd.read_sql("SELECT * FROM transacoes;", ENGINE, parse_dates=["data_horario"])
+    users = pd.read_sql("SELECT * FROM usuarios;", ENGINE)
     regions = pd.read_csv("data/regioes_estados_brasil.csv")
 
     return transactions, users, regions
@@ -77,10 +118,13 @@ def preprocess_data(transactions, users, regions):
     return df
 
 
+
+
+get_redis_connection()
+
 # --- Load and Prepare ---
 transactions, users, regions = load_data()
 df = preprocess_data(transactions, users, regions)
-
 
 # --- Streamlit UI ---
 st.sidebar.header("Filters")
@@ -93,6 +137,8 @@ filtered_df = df[
 ]
 
 # --- Analyses ---
+
+
 
 # 1
 st.subheader("1. Transaction Approval Overview")
