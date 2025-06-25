@@ -19,6 +19,7 @@ np.random.seed(42)
 def create_database_schema(cursor):
     """Cria o schema do banco de dados (tabelas e indices) de forma idempotente."""
     print("Garantindo que o schema do banco de dados (tabelas e indices) exista...")
+    
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS usuarios (
             id_usuario UUID PRIMARY KEY,
@@ -31,6 +32,7 @@ def create_database_schema(cursor):
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
     """)
+
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS transacoes (
             id_transacao UUID PRIMARY KEY,
@@ -49,6 +51,16 @@ def create_database_schema(cursor):
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
     """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS transacoes_scores (
+            id_transacao UUID REFERENCES transacoes(id_transacao),
+            t5_score FLOAT,
+            t6_score FLOAT,
+            t7_score FLOAT
+        );
+    """)
+
     # Criar indices
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_transacoes_data_horario ON transacoes(data_horario);")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_transacoes_latencia ON transacoes(latencia_total_ms);")
@@ -148,6 +160,7 @@ def main():
                 if force_recreate:
                     print("FORCE_RECREATE=true. Limpando tabelas existentes...")
                     cur.execute("DROP TABLE IF EXISTS transacoes CASCADE;")
+                    cur.execute("DROP TABLE IF EXISTS transacoes_scores CASCADE;")
                     cur.execute("DROP TABLE IF EXISTS usuarios CASCADE;")
                     print("Tabelas antigas removidas.")
 

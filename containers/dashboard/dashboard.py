@@ -129,9 +129,8 @@ def df_from_redis(_redis_client, count):
         st.error(f"Erro ao buscar dados do Redis: {e}")
         return pd.DataFrame()
 
-@st.cache_data
+@st.cache_data(ttl="1d")
 def load_data():
-
     transactions = pd.read_sql("SELECT * FROM transacoes;", ENGINE, parse_dates=["data_horario"])
     users = pd.read_sql("SELECT * FROM usuarios;", ENGINE)
     regions = pd.read_csv("data/regioes_estados_brasil.csv")
@@ -299,7 +298,7 @@ if not filtered_df.empty:
 
     # 2
     st.subheader("2. Score de Risco (Valor) vs Aprovação")
-    st.scatter_chart(filtered_df[["valor_transacao", "transacao_aprovada"]])
+    st.scatter_chart(filtered_df, x="valor_transacao", y="transacao_aprovada")
 
     # 3
     st.subheader("3. Score de Risco (Tempo) vs Aprovação")

@@ -119,32 +119,32 @@ try:
         )
     ).withColumn(
         "t6_score",
-        F.lit(0.0)  # Score placeholder
+        (F.col("valor_transacao") > 500).astype("double")
     ).withColumn(
         "t7_score",
         (F.hour(F.col("data_horario")) - 12) / 12.0
     ).withColumn(
         "score_medio",
-        (F.col("t5_score") + F.col("t6_score") + F.col("t7_score")) / 3.0
+        (F.col("t5_score") * F.col("t6_score") * F.col("t7_score")) / 3.0
     ).withColumn(
         "score_aprovado",
         F.when(F.col("score_medio") > 6, False).otherwise(True)
     ).withColumn(
         "saldo_aprovado",
-        F.when(F.col("saldo") > F.col("valor_transacao"), True).otherwise(False)
+        F.col("saldo") > F.col("valor_transacao")
     ).withColumn(
         "limite_aprovado",
         F.when(
             F.col("modalidade_pagamento") == "PIX",
-            F.when(F.col("valor_transacao") > F.col("limite_PIX"), False).otherwise(True)
+            F.col("valor_transacao") < F.col("limite_PIX")
         ).when(
             F.col("modalidade_pagamento") == "TED",
-            F.when(F.col("valor_transacao") > F.col("limite_TED"), False).otherwise(True)
+            F.col("valor_transacao") < F.col("limite_TED")
         ).when(
             F.col("modalidade_pagamento") == "Boleto",
-            F.when(F.col("valor_transacao") > F.col("limite_Boleto"), False).otherwise(True)
+            F.col("valor_transacao") < F.col("limite_Boleto")
         ).otherwise(
-            F.when(F.col("valor_transacao") > F.col("limite_DOC"), False).otherwise(True)
+            F.col("valor_transacao") < F.col("limite_DOC")
         )
     ).withColumn(
         "transacao_aprovada",
@@ -161,6 +161,9 @@ try:
         F.col("data_horario"),
         F.col("valor_transacao"),
         F.col("transacao_aprovada"),
+        F.col("t5_score"),
+        F.col("t6_score"),
+        F.col("t7_score"),
         # Adicionar as métricas de tempo
         F.current_timestamp().alias("tempo_saida_resultado"),  # Timestamp de saída
         F.col("kafka_timestamp").alias("tempo_entrada_kafka"),  # Timestamp de entrada no Kafka
@@ -175,7 +178,23 @@ try:
     def write_microbatch_to_sinks(data, mbatch_id):
         data.persist()
 
-        data.write \
+        transacoes_df = data.select(
+            "id_transacao",
+            "id_usuario_pagador",
+            "id_usuario_recebedor",
+            "id_regiao",
+            "modalidade_pagamento",
+            "data_horario",
+            "valor_transacao",
+            "transacao_aprovada",
+            "tempo_saida_resultado",
+            "tempo_entrada_kafka",
+            "tempo_inicio_processamento",
+            "latencia_total_ms",
+            "tempo_processamento_ms"
+        )
+
+        transacoes_df.write \
             .format("jdbc") \
             .option("url", jdbc_link) \
             .option("dbtable", "transacoes") \
@@ -184,7 +203,19 @@ try:
             .option("driver", connection_info["driver"]) \
             .mode("append") \
             .save()
-        print(f"Micro-batch {mbatch_id} written to PostgreSQL.")
+        print(f"Micro-batch {mbatch_id} written to PostgreSQL (transacoes).")
+
+        scores_df = data.select("id_transacao", "t5_score", "t6_score", "t7_score")
+        scores_df.write \
+            .format("jdbc") \
+            .option("url", jdbc_link) \
+            .option("dbtable", "transacoes_scores") \
+            .option("user", connection_info["user"]) \
+            .option("password", connection_info["password"]) \
+            .option("driver", connection_info["driver"]) \
+            .mode("append") \
+            .save()
+        print(f"Micro-batch {mbatch_id} written to PostgreSQL (transacoes_scores).")
 
         # Write to Redis
         print(f"Writing micro-batch {mbatch_id} to Redis...")
