@@ -3,7 +3,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from sqlalchemy import create_engine, URL
-from datetime import datetime, date
+from datetime import datetime, date, timezone, timedelta
 from geopy.distance import geodesic
 import pydeck as pdk
 import os
@@ -239,7 +239,43 @@ last_mean_latency = 0
 @st.fragment(run_every="2s")
 def live():
     if REDIS_CLIENT:
+        global last_mean_value, last_mean_latency
+        
         df = df_from_redis(REDIS_CLIENT, num_recent_transactions)
+
+        col1, col2, col3 = st.columns(3)
+
+        mean_value = df["valor_transacao"].mean()
+        mean_latency = (df["latencia_total_ms"]).mean()
+
+
+        mean_latency = (df["tempo_saida_resultado"] - df["data_horario"]).mean() / timedelta(milliseconds=1)
+        
+        with col1:
+            st.metric(
+                label=f"Latência média",
+                value=f"{mean_latency :.2f} ms",
+                delta=f"{mean_latency-last_mean_latency :.2f}",
+                delta_color="inverse"
+            )
+
+        with col2:
+            st.metric(
+                label=f"Nº transações negadas",
+                value=f"{(df["transacao_aprovada"] == 0).sum()}"
+            )
+
+        with col3:
+            st.metric(
+                label=f"Média últimas {len(df)} das transações",
+                value=f"R$ {mean_value :.2f}",
+                delta=f"{mean_value-last_mean_value :.2f}"
+            )
+
+        last_mean_value = mean_value
+
+        last_mean_latency = mean_latency
+
 
         if not df.empty:
             st.subheader(f"Exibindo as {len(df)} Transações Mais Recentes")
