@@ -13,6 +13,9 @@ import uuid
 KAFKA_BROKER = 'broker:29092'
 TOPIC_NAME = 'bank_transactions'
 
+print(f"Using Kafka broker: {KAFKA_BROKER}",
+      f"\nUsing topic: {TOPIC_NAME}")
+
 conn_params = {
     "host": "postgres",
     "port": "5432",
