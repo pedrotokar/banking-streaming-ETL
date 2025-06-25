@@ -13,6 +13,9 @@ import uuid
 KAFKA_BROKER = 'broker:29092'
 TOPIC_NAME = 'bank_transactions'
 
+print(f"Using Kafka broker: {KAFKA_BROKER}",
+      f"\nUsing topic: {TOPIC_NAME}")
+
 conn_params = {
     "host": "postgres",
     "port": "5432",
@@ -93,9 +96,10 @@ def generate_transaction(usuarios):
     # if valor > pagador[limite_key]:
     #     valor = round(pagador[limite_key] * np.random.random(), 2)
     
-    data_horario = (datetime.now() - timedelta(
-        seconds=int(np.random.rand() * 86400 * 365)
-    )).isoformat()
+    # data_horario = (datetime.now() - timedelta(
+    #     seconds=int(np.random.rand() * 86400 * 365)
+    # )).isoformat()
+    data_horario = datetime.now().isoformat()
     
     transaction = {
         'id_transacao': str(uuid.uuid4()),
