@@ -119,7 +119,7 @@ try:
         )
     ).withColumn(
         "t6_score",
-        (F.col("valor_transacao") > 500).astype("double")
+        (F.col("valor_transacao") > 2000).astype("double")
     ).withColumn(
         "t7_score",
         (F.hour(F.col("data_horario")) - 12) / 12.0
