@@ -133,8 +133,6 @@ def df_from_redis(_redis_client, count):
 def load_data():
     transactions = pd.read_sql("SELECT * FROM transacoes;", ENGINE, parse_dates=["data_horario"])
     transactions_scores = pd.read_sql("SELECT * FROM transacoes_scores;", ENGINE)
-    users = pd.read_sql("SELECT * FROM usuarios;", ENGINE)
-    regions = pd.read_csv("data/regioes_estados_brasil.csv")
 
     if not transactions.empty:
         uuid_cols_t = ["id_transacao", "id_usuario_pagador", "id_usuario_recebedor"]
@@ -146,12 +144,18 @@ def load_data():
         if "id_transacao" in transactions_scores.columns and transactions_scores["id_transacao"].dtype == 'object':
             transactions_scores["id_transacao"] = transactions_scores["id_transacao"].astype(str)
 
+    return transactions, transactions_scores
+
+@st.cache_data
+def load_data_constants():
+    users = pd.read_sql("SELECT * FROM usuarios;", ENGINE)
+    regions = pd.read_csv("data/regioes_estados_brasil.csv")
+
     if not users.empty:
         if "id_usuario" in users.columns and users["id_usuario"].dtype == 'object':
             users["id_usuario"] = users["id_usuario"].astype(str)
 
-    return transactions, transactions_scores, users, regions
-
+    return users, regions
 
 # --- Preprocess Data ---
 def preprocess_data(transactions, transactions_scores, users, regions):
@@ -211,7 +215,9 @@ def preprocess_data(transactions, transactions_scores, users, regions):
 
 
 # --- Load and Prepare ---
-transactions, transactions_scores, users, regions = load_data()
+transactions, transactions_scores = load_data()
+users, regions = load_data_constants()
+
 if not transactions.empty:
     df = preprocess_data(transactions, transactions_scores, users, regions)
 else:
