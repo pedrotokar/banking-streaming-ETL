@@ -1,0 +1,33 @@
+# Docker Compose para SPARK ETL EC2 (44.202.72.228)
+# Este arquivo deve ser usado na instância banking-spark-etl
+
+services:
+  spark-etl:
+    build: ./containers/spark-etl
+    container_name: spark-etl
+    volumes:
+      - ./containers/spark-etl:/app
+      - ./data:/app/data
+      - spark_checkpoint:/tmp/spark_checkpoint
+    environment:
+      PYTHONUNBUFFERED: 1
+      SPARK_MODE: standalone
+      # Conectar ao Kafka na outra EC2
+      KAFKA_BOOTSTRAP_SERVERS: 54.165.125.229:9092
+      # Conectar ao Redis na outra EC2
+      REDIS_HOST: 54.165.125.229
+      REDIS_PORT: 6379
+      # Usar RDS PostgreSQL
+      DB_HOST: banking-postgres.co1souk8uzw3.us-east-1.rds.amazonaws.com
+      DB_PORT: 5432
+      DB_NAME: bank
+      DB_USER: bank_etl
+      DB_PASS: ihateavroformat123
+    restart: unless-stopped
+    ports:
+      - "4040:4040"  # Spark UI
+      - "8080:8080"  # Spark Master UI (se necessário)
+
+volumes:
+  spark_checkpoint:
+    driver: local 

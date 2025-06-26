@@ -10,19 +10,23 @@ import json
 import time
 import uuid
 
-KAFKA_BROKER = 'broker:29092'
+# Usar variáveis de ambiente para configuração AWS
+KAFKA_BROKER = os.getenv('KAFKA_BOOTSTRAP_SERVERS', 'broker:29092')
 TOPIC_NAME = 'bank_transactions'
 
 print(f"Using Kafka broker: {KAFKA_BROKER}",
       f"\nUsing topic: {TOPIC_NAME}")
 
+# Configuração do PostgreSQL usando variáveis de ambiente
 conn_params = {
-    "host": "postgres",
-    "port": "5432",
-    "dbname": "bank",
-    "user": "bank_etl",
-    "password": "ihateavroformat123"
+    "host": os.getenv('DB_HOST', 'postgres'),
+    "port": os.getenv('DB_PORT', '5432'),
+    "dbname": os.getenv('DB_NAME', 'bank'),
+    "user": os.getenv('DB_USER', 'bank_etl'),
+    "password": os.getenv('DB_PASS', 'ihateavroformat123')
 }
+
+print(f"Using PostgreSQL: {conn_params['host']}:{conn_params['port']}/{conn_params['dbname']}")
 
 producer_config = {
     'bootstrap.servers': KAFKA_BROKER,

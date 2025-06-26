@@ -1,0 +1,20 @@
+{
+  "family": "banking-producer-task",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "256",
+  "memory": "512",
+  "executionRoleArn": "arn:aws:iam::421248324744:role/ecsTaskExecutionRole",
+  "containerDefinitions": [
+    {
+      "name": "banking-producer",
+      "image": "421248324744.dkr.ecr.us-east-1.amazonaws.com/banking-producer:latest",
+      "environment": [
+        {"name": "KAFKA_BOOTSTRAP_SERVERS", "value": "54.165.125.229:9092"},
+        {"name": "DB_HOST", "value": "banking-postgres.co1souk8uzw3.us-east-1.rds.amazonaws.com"},
+        {"name": "DB_USER", "value": "bank_etl"},
+        {"name": "DB_PASS", "value": "ihateavroformat123"}
+      ]
+    }
+  ]
+}

@@ -1,3 +1,4 @@
+import pandas as pd
 import psycopg2
 import psycopg2.extras
 import uuid
@@ -5,6 +6,8 @@ import numpy as np
 import os
 import sys
 import time
+import json
+from datetime import datetime
 
 # --- STATIC ---
 NUM_USERS_MOCK = 10_000
@@ -15,6 +18,17 @@ estados_uf = [
 ]
 
 np.random.seed(42)
+
+# Configuração do PostgreSQL usando variáveis de ambiente
+DB_CONFIG = {
+    'host': os.getenv('DB_HOST', 'postgres'),
+    'port': os.getenv('DB_PORT', '5432'),
+    'dbname': os.getenv('DB_NAME', 'bank'),
+    'user': os.getenv('DB_USER', 'bank_etl'),
+    'password': os.getenv('DB_PASS', 'ihateavroformat123')
+}
+
+print(f"Connecting to PostgreSQL: {DB_CONFIG['host']}:{DB_CONFIG['port']}/{DB_CONFIG['dbname']}")
 
 def create_database_schema(cursor):
     """Cria o schema do banco de dados (tabelas e indices) de forma idempotente."""

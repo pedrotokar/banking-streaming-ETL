@@ -1,0 +1,102 @@
+# Docker Compose para KAFKA SERVER EC2 (54.165.125.229)
+# Este arquivo deve ser usado na instância banking-kafka-server
+
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    hostname: zookeeper
+    container_name: zookeeper
+    ports:
+      - "2181:2181"
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    volumes:
+      - zookeeper_data:/var/lib/zookeeper/data
+    restart: unless-stopped
+
+  broker:
+    image: confluentinc/cp-kafka:7.5.0
+    hostname: broker
+    container_name: broker
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+      - "9101:9101"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: 'zookeeper:2181'
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      # CRÍTICO: Usar IP público da EC2 para conexões externas
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://broker:29092,PLAINTEXT_HOST://54.165.125.229:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_JMX_PORT: 9101
+      KAFKA_JMX_HOSTNAME: localhost
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+    volumes:
+      - broker_data:/var/lib/kafka/data
+    restart: unless-stopped
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: aws-kafka
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: broker:29092
+      KAFKA_CLUSTERS_0_ZOOKEEPERCONNECT: zookeeper:2181
+    depends_on:
+      - broker
+    restart: unless-stopped
+
+  producer:
+    build: ./containers/producer
+    container_name: producer
+    volumes:
+      - ./containers/producer:/app
+      - ./data:/app/data
+    depends_on:
+      - broker
+    environment:
+      PYTHONUNBUFFERED: 1
+      # Usar broker interno (mesma EC2)
+      KAFKA_BOOTSTRAP_SERVERS: broker:29092
+      # Usar RDS PostgreSQL
+      DB_HOST: banking-postgres.co1souk8uzw3.us-east-1.rds.amazonaws.com
+      DB_PORT: 5432
+      DB_NAME: bank
+      DB_USER: bank_etl
+      DB_PASS: ihateavroformat123
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: redis
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+
+  # Serviço para popular dados iniciais (executar uma vez)
+  db-seed:
+    build: ./containers/db-seed   
+    container_name: db_seed
+    environment:
+      PYTHONUNBUFFERED: 1
+      # Usar RDS PostgreSQL
+      DB_HOST: banking-postgres.co1souk8uzw3.us-east-1.rds.amazonaws.com
+      DB_PORT: 5432
+      DB_NAME: bank
+      DB_USER: bank_etl
+      DB_PASS: ihateavroformat123
+    restart: "no"
+
+volumes:
+  zookeeper_data:
+    driver: local
+  broker_data:
+    driver: local 

@@ -7,6 +7,20 @@ import os
 users_csv = "data/informacoes_cadastro_100k.csv"
 regions_csv = "data/regioes_estados_brasil.csv"
 
+# Configurações usando variáveis de ambiente para AWS
+KAFKA_BOOTSTRAP_SERVERS = os.getenv('KAFKA_BOOTSTRAP_SERVERS', 'broker:29092')
+DB_HOST = os.getenv('DB_HOST', 'postgres')
+DB_PORT = os.getenv('DB_PORT', '5432')
+DB_NAME = os.getenv('DB_NAME', 'bank')
+DB_USER = os.getenv('DB_USER', 'bank_etl')
+DB_PASS = os.getenv('DB_PASS', 'ihateavroformat123')
+REDIS_HOST = os.getenv('REDIS_HOST', 'redis')
+REDIS_PORT = int(os.getenv('REDIS_PORT', '6379'))
+
+print(f"Connecting to Kafka: {KAFKA_BOOTSTRAP_SERVERS}")
+print(f"Connecting to PostgreSQL: {DB_HOST}:{DB_PORT}/{DB_NAME}")
+print(f"Connecting to Redis: {REDIS_HOST}:{REDIS_PORT}")
+
 spark = SparkSession.builder \
     .appName("bankingETL") \
     .config("spark.jars.packages", "com.redislabs:spark-redis_2.12:3.0.0,org.postgresql:postgresql:42.6.0") \
@@ -36,7 +50,7 @@ try:
     kafka_messages = spark \
         .readStream \
         .format("kafka") \
-        .option("kafka.bootstrap.servers", "broker:29092") \
+        .option("kafka.bootstrap.servers", KAFKA_BOOTSTRAP_SERVERS) \
         .option("subscribe", "bank_transactions") \
         .option("startingOffsets", "earliest") \
         .option("failOnDataLoss", "false") \
@@ -63,10 +77,10 @@ try:
 
     print("Carregando dados estáticos...")
 
-    jdbc_link = "jdbc:postgresql://postgres:5432/bank?stringtype=unspecified"
+    jdbc_link = f"jdbc:postgresql://{DB_HOST}:{DB_PORT}/{DB_NAME}?stringtype=unspecified"
     connection_info = {
-        "user": "bank_etl",
-        "password": "ihateavroformat123",
+        "user": DB_USER,
+        "password": DB_PASS,
         "driver": "org.postgresql.Driver"
     }
 
@@ -222,8 +236,8 @@ try:
         print(f"Writing micro-batch {mbatch_id} to Redis...")
         data.write \
             .format("org.apache.spark.sql.redis") \
-            .option("host", os.getenv("REDIS_HOST", "redis")) \
-            .option("port", os.getenv("REDIS_PORT", "6379")) \
+            .option("host", REDIS_HOST) \
+            .option("port", REDIS_PORT) \
             .option("table", "transacoes") \
             .option("key.column", "id_transacao") \
             .mode("append") \
@@ -237,8 +251,8 @@ try:
             # precisa criar aqui dentro pq
             # o objeto do cliente não é serializável
             redis_client = redis.Redis(
-                host=os.getenv("REDIS_HOST", "redis"),
-                port=int(os.getenv("REDIS_PORT", "6379")),
+                host=REDIS_HOST,
+                port=REDIS_PORT,
                 db=0
             )
 
