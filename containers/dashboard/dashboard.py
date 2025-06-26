@@ -620,7 +620,7 @@ distance_vs_approval = distance_vs_approval.rename(columns={True: "Aprovada", Fa
 df_long = distance_vs_approval.melt(id_vars="distance_bucket", var_name="Status", value_name="Contagem")
 
 chart = alt.Chart(df_long).mark_bar().encode(
-    x=alt.X("distance_bucket:O", axis=alt.Axis(labelAngle=0), title="Faixa de Distância"),
+    x=alt.X("distance_bucket:O", sort=list(distance_vs_approval["distance_bucket"]), axis=alt.Axis(labelAngle=0), title="Faixa de Distância"),
     y=alt.Y("Contagem:Q", title="Quantidade"),
     color="Status:N"
 ).properties(width=600, height=400)
