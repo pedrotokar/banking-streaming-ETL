@@ -9,6 +9,7 @@ import plotly.graph_objects as go
 import plotly.express as px
 import os
 import redis
+import altair as alt
 
 st.set_page_config(
     page_title="Banking Transaction Dashboard (Live PostgreSQL Data)",
@@ -441,9 +442,77 @@ with col_right:
 
 
 # 3 -------------------------------------------------------------------------
-#st.subheader("3. Score de Risco (Tempo) vs Aprovação")
-#st.scatter_chart(filtered_df[["time_score", "transacao_aprovada"]])
+    st.subheader("Distribuição do Score de Risco por Faixa de Valor")
+    if "valor_transacao" in filtered_df.columns and "t5_score" in filtered_df.columns:
+        bins = [0, 500, 1000, 2500, 5000, 10000, np.inf]
+        labels = ["0-500", "500-1000", "1000-2500", "2500-5000", "5000-10000", ">10000"]
+        plot_df = filtered_df[["valor_transacao", "t5_score", "transacao_aprovada"]].copy()
+        plot_df["valor_bin"] = pd.cut(plot_df["valor_transacao"], bins=bins, labels=labels)
 
+        fig_box = px.box(
+            plot_df.dropna(subset=['valor_bin', 't5_score']),
+            x="valor_bin",
+            y="t5_score",
+            color="transacao_aprovada",
+            labels={
+                "valor_bin": "Faixa de Valor da Transação (R$)",
+                "t5_score": "Score de Risco (T5)",
+                "transacao_aprovada": "Transação Aprovada?"
+            },
+            category_orders={"valor_bin": labels}
+        )
+        st.plotly_chart(fig_box, use_container_width=True, config={'displayModeBar': False})
+    else:
+        st.warning("Colunas 'valor_transacao' ou 't5_score' não encontradas para gerar o gráfico.")
+
+    st.subheader("Mapa de Densidade: Concentração de Transações")
+    col_approved, col_denied = st.columns(2)
+    with col_approved:
+        fig_approved = px.density_heatmap(
+            filtered_df[filtered_df["transacao_aprovada"] == True],
+            x="valor_transacao", y="t5_score", nbinsx=30, nbinsy=30,
+            labels={"valor_transacao": "Valor", "t5_score": "Score"}
+        )
+        fig_approved.update_layout(
+            coloraxis_showscale=False,
+            title=dict(text="Transações Aprovadas", x=0.6, xanchor="center")
+        )
+        st.plotly_chart(fig_approved, use_container_width=True, config={"displayModeBar": False})
+
+    with col_denied:
+        fig_denied = px.density_heatmap(
+            filtered_df[filtered_df["transacao_aprovada"] == False],
+            x="valor_transacao", y="t5_score", nbinsx=30, nbinsy=30,
+            labels={"valor_transacao": "Valor", "t5_score": "Score"}
+        )
+        fig_denied.update_layout(
+            coloraxis_showscale=False,
+            title=dict(text="Transações Negadas", x=0.6, xanchor="center")
+        )
+        st.plotly_chart(fig_denied, use_container_width=True, config={"displayModeBar": False})
+
+
+    # 3.5
+    st.subheader("3. Score de Risco por Horário vs Aprovação de acordo com o horário")
+
+    df_plot = filtered_df.groupby("hour")[["time_score", "transacao_aprovada"]].mean().reset_index()
+
+    # Cria gráfico de barras para time_score
+    bar = alt.Chart(df_plot).mark_bar(opacity=0.6, color="#1f77b4").encode(
+        x=alt.X("hour:O", axis=alt.Axis(labelAngle=0)),
+        y=alt.Y("time_score:Q", title="Score Médio")
+    )
+
+    # Criar gráfico de linha para 'transacao_aprovada'
+    line = alt.Chart(df_plot).mark_line(color="#ff7f0e", strokeWidth=2).encode(
+        x="hour:O",
+        y=alt.Y("transacao_aprovada:Q", title="Taxa de Aprovação"),
+    )
+
+    # Combinar os dois
+    chart = (bar + line).properties(width=700, height=400)
+
+    st.altair_chart(chart, use_container_width=True)
 
 # 4 -------------------------------------------------------------------------
 st.subheader("4. Região vs Taxa de Aprovação")
