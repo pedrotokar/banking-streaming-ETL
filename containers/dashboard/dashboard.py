@@ -475,11 +475,14 @@ fig_map = px.choropleth(
 fig_map.update_geos(
     center={"lat": -14.2350, "lon": -51.9253},
     fitbounds="locations",
-    visible=False
+    visible=False,
+    bgcolor='rgba(0,0,0,0)'
 )
 fig_map.update_layout(
     margin={"r":0, "t":0, "l":0, "b":0},
-    coloraxis_colorbar=dict(title="Taxa de Aprovação", tickformat=".0%", ticks="outside")
+    coloraxis_colorbar=dict(title="Taxa de Aprovação", tickformat=".0%", ticks="outside"),
+    paper_bgcolor='rgba(0,0,0,0)',
+    plot_bgcolor='rgba(0,0,0,0)'
 )
 
 st.plotly_chart(fig_map, use_container_width=True)
