@@ -1,2 +1,4 @@
 pyspark==3.5.0
 pandas
+pyarrow
+redis==5.0.1

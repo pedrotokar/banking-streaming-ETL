@@ -14,9 +14,12 @@ estados_uf = [
     "RR","SC","SP","SE","TO"
 ]
 
+np.random.seed(42)
+
 def create_database_schema(cursor):
     """Cria o schema do banco de dados (tabelas e indices) de forma idempotente."""
     print("Garantindo que o schema do banco de dados (tabelas e indices) exista...")
+    
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS usuarios (
             id_usuario UUID PRIMARY KEY,
@@ -30,6 +33,7 @@ def create_database_schema(cursor):
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
     """)
+
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS transacoes (
             id_transacao UUID PRIMARY KEY,
@@ -48,17 +52,40 @@ def create_database_schema(cursor):
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
     """)
+
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS staging_updates_usuarios (
             id_usuario UUID PRIMARY KEY REFERENCES usuarios(id_usuario),
             data_ultima_transacao TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
     """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS transacoes_scores (
+            id_transacao UUID REFERENCES transacoes(id_transacao),
+            t5_score FLOAT,
+            t6_score FLOAT,
+            t7_score FLOAT
+        );
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS regioes (
+            id_regiao VARCHAR(2) PRIMARY KEY,
+            latitude FLOAT NOT NULL,
+            longitude FLOAT NOT NULL,
+            media_transacional_mensal NUMERIC(15, 2) NOT NULL,
+            num_fraudes_ult_30d INT NOT NULL
+            );
+    """)
+
     # Criar indices
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_transacoes_data_horario ON transacoes(data_horario);")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_transacoes_latencia ON transacoes(latencia_total_ms);")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_transacoes_aprovada ON transacoes(transacao_aprovada);")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_transacoes_modalidade ON transacoes(modalidade_pagamento);")
+
+
     print("Schema verificado com sucesso.")
 
 def create_performance_views(cursor):
@@ -132,6 +159,45 @@ def insert_user_data(cursor):
     )
     print("Dados de usuarios inseridos com sucesso.")
 
+def insert_region_data(cursor):
+    print("Inserindo  informações de região.")
+    DADOS_REGIOES = [
+        ("AC", 4.147298,-35.642456,26305.75,82),
+        ("AL", -29.24522,-67.13095,4958.37,22),
+        ("AP", -28.700766,-34.714225,4037.06,89),
+        ("AM", 3.598371,-64.437367,10351.37,27),
+        ("BA", -20.841066,-62.998829,6068.45,0),
+        ("CE", -17.510177,-55.930461,23148.82,97),
+        ("DF", -28.12076,-58.332415,25596.55,80),
+        ("ES", -32.577558,-66.29333,13999.48,31),
+        ("GO", -10.233171,-50.206164,20182.09,67),
+        ("MA", -10.735464,-41.078448,22756.66,7),
+        ("MT", -1.077585,-55.420304,6304.58,89),
+        ("MS", -3.859656,-37.757044,20954.34,93),
+        ("MG", -17.570166,-51.046926,10117.24,13),
+        ("PA", -3.988757,-67.33787,21335.66,19),
+        ("PB", 0.97572,-72.101982,17141.8,33),
+        ("PR", -1.547698,-56.028711,5568.68,80),
+        ("PE", -1.811759,-47.714975,17996.38,40),
+        ("PI", -14.570089,-65.483063,9340.64,89),
+        ("RJ", -9.712581,-52.622654,18112.04,63),
+        ("RN", 2.104537,-72.836875,24662.22,57),
+        ("RS", -23.698082,-65.421225,8541.55,38),
+        ("RO", -12.737473,-35.20106,21561.12,98),
+        ("RR", -1.50035,-35.527608,27278.9,26),
+        ("SC", 2.597277,-45.369319,13098.97,82),
+        ("SP", -18.333825,-34.478437,23166.88,36),
+        ("SE", -29.278844,-42.949481,4835.22,2),
+        ("TO", -29.697094,-51.37746,18537.89,12),
+        ]
+    psycopg2.extras.execute_values(
+        cursor,
+        "INSERT INTO regioes (id_regiao, latitude, longitude, media_transacional_mensal, num_fraudes_ult_30d) VALUES %s ON CONFLICT (id_regiao) DO NOTHING;",
+        DADOS_REGIOES,
+        page_size=1000
+        )
+    print("Dados de regioes inseridos com sucesso.")
+
 def main():
     """Funcao principal para configurar o banco de dados."""
     conn_params = {
@@ -153,6 +219,7 @@ def main():
                 if force_recreate:
                     print("FORCE_RECREATE=true. Limpando tabelas existentes...")
                     cur.execute("DROP TABLE IF EXISTS transacoes CASCADE;")
+                    cur.execute("DROP TABLE IF EXISTS transacoes_scores CASCADE;")
                     cur.execute("DROP TABLE IF EXISTS usuarios CASCADE;")
                     print("Tabelas antigas removidas.")
 
@@ -166,6 +233,7 @@ def main():
                 if user_count == 0:
                     print("Banco de dados vazio detectado. Populando com dados iniciais...")
                     insert_user_data(cur)
+                    insert_region_data(cur)
                 else:
                     print(f"O banco de dados ja esta populado com {user_count:,} usuarios. Nenhuma acao necessaria.")
                     print("Use a variavel de ambiente FORCE_RECREATE=true para forcar a recriacao.")

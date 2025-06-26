@@ -19,6 +19,7 @@ RUN pip3 install --no-cache-dir --upgrade pip && \
         kafka-python==2.0.2 \
         py4j==0.10.9.7 \
         pyarrow \
+        redis \
         pandas #Precisa colocar uma versão dps
 
 # Criar diretorio de JARs (caso nao exista)

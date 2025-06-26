@@ -76,8 +76,8 @@ def delivery_report(err, msg):
     """Callback invoked on message delivery success or failure."""
     if err is not None:
         print(f'Message delivery failed: {err}')
-    else:
-        print(f'Message delivered to {msg.topic()} [{msg.partition()}] @ {msg.offset()}')
+    # else:
+    #     print(f'Message delivered to {msg.topic()} [{msg.partition()}] @ {msg.offset()}')
 
 
 def generate_transaction(usuarios):
@@ -99,6 +99,7 @@ def generate_transaction(usuarios):
     data_horario = (datetime.now() - timedelta(
         seconds = int((np.random.rand() - 0.5) * 60)
     )).isoformat()
+#    data_horario = datetime.now().isoformat()
     
     transaction = {
         'id_transacao': str(uuid.uuid4()),
@@ -156,10 +157,10 @@ def main():
             producer.flush()
             
             transaction_count += 1
-            if transaction_count % 100 == 0:
+            if transaction_count % 1000 == 0:
                 print(f"Generated and published {transaction_count} transactions")
             
-            time.sleep(0.5)
+            time.sleep(0.01)
             
     except KeyboardInterrupt:
         print("\nStopping transaction producer...")

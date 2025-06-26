@@ -3,6 +3,8 @@ from pyspark.sql import SparkSession
 from pyspark.sql.types import StructType, StructField, StringType, TimestampType, DoubleType
 from pyspark.sql.streaming.state import GroupState, GroupStateTimeout
 import pyspark.sql.functions as F
+import redis
+import os
 
 print(f"======Iniciando PySpark versão {pyspark.__version__}=======")
 
@@ -11,12 +13,14 @@ regions_csv = "data/regioes_estados_brasil.csv"
 
 spark = SparkSession.builder \
     .appName("bankingETL") \
+    .config("spark.jars.packages", "com.redislabs:spark-redis_2.12:3.0.0,org.postgresql:postgresql:42.6.0") \
     .config("spark.sql.streaming.schemaInference", "true") \
     .config("spark.sql.adaptive.enabled", "true") \
     .config("spark.sql.adaptive.coalescePartitions.enabled", "true") \
     .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer") \
     .config("spark.sql.streaming.kafka.useDeprecatedOffsetFetching", "false") \
     .getOrCreate()
+spark.conf.set("spark.sql.streaming.stateStore.providerClass", "org.apache.spark.sql.execution.streaming.state.RocksDBStateStoreProvider")
 
 spark.sparkContext.setLogLevel("WARN")
 
@@ -64,8 +68,12 @@ def state_function(key, df_iter, state: GroupState):
     Isso garante indempotencia, já que se o Spark Structured Streaming mandar a
     mesma transacao de novo, ela não será processada."""
 
-#    user_id = key[0]
+    user_id = key[0]
 #    print("usuario id", user_id)
+    if state.hasTimedOut:
+        print(f"Estado para o usuário {user_id} expirou e foi removido.")
+        state.remove()
+        return # Não retorna nada
 
     if not state.exists:
         state_timestamp = None #vai pegar da linha
@@ -87,7 +95,7 @@ def state_function(key, df_iter, state: GroupState):
 
     if most_recent_timestamp > state_timestamp:
         state.update((most_recent_timestamp,))
-    state.setTimeoutDuration(36 * 1e5)
+    state.setTimeoutDuration(60000)
 #=========
 
 try:
@@ -100,8 +108,8 @@ try:
         .option("failOnDataLoss", "false") \
         .option("kafka.request.timeout.ms", "60000") \
         .option("kafka.session.timeout.ms", "30000") \
-        .option("maxOffsetsPerTrigger", "1000") \
         .load()
+        # .option("maxOffsetsPerTrigger", "1000") \
 
     print("Stream Kafka iniciado com sucesso!")
 
@@ -141,11 +149,11 @@ try:
 
     users = users.withColumnRenamed("id_regiao", "id_regiao_u")
 
-    regions = spark.read \
-        .option("header", "true") \
-        .option("inferSchema", "true") \
-        .csv(regions_csv) \
-        .cache()
+    regions = spark.read.jdbc(
+        url = jdbc_link,
+        table = "regioes",
+        properties = connection_info
+    ).cache()
 
     print("Dados estáticos carregados!")
 
@@ -159,7 +167,7 @@ try:
         state_function,
         state_output_schema,
         state_schema,
-        "update",
+        "append",
         GroupStateTimeout.ProcessingTimeTimeout
     )
 
@@ -190,13 +198,13 @@ try:
         )
     ).withColumn(
         "t6_score",
-        F.lit(0.0)  # Score placeholder
+        (F.col("valor_transacao") > 500).astype("double")
     ).withColumn(
         "t7_score",
         (F.hour(F.col("data_horario")) - 12) / 12.0
     ).withColumn(
         "score_medio",
-        (F.col("t5_score") + F.col("t6_score") + F.col("t7_score")) / 3.0
+        (F.col("t5_score") * F.col("t6_score") * F.col("t7_score")) / 3.0
     ).withColumn(
         "score_aprovado",
         F.when(F.col("score_medio") > 6, False).otherwise(True)
@@ -204,15 +212,15 @@ try:
         "limite_aprovado",
         F.when(
             F.col("modalidade_pagamento") == "PIX",
-            F.when(F.col("valor_transacao") > F.col("limite_PIX"), False).otherwise(True)
+            F.col("valor_transacao") < F.col("limite_PIX")
         ).when(
             F.col("modalidade_pagamento") == "TED",
-            F.when(F.col("valor_transacao") > F.col("limite_TED"), False).otherwise(True)
+            F.col("valor_transacao") < F.col("limite_TED")
         ).when(
             F.col("modalidade_pagamento") == "Boleto",
-            F.when(F.col("valor_transacao") > F.col("limite_Boleto"), False).otherwise(True)
+            F.col("valor_transacao") < F.col("limite_Boleto")
         ).otherwise(
-            F.when(F.col("valor_transacao") > F.col("limite_DOC"), False).otherwise(True)
+            F.col("valor_transacao") < F.col("limite_DOC")
         )
     ).withColumn(
         "saldo_aprovado",
@@ -232,6 +240,9 @@ try:
         F.col("data_horario"),
         F.col("valor_transacao"),
         F.col("transacao_aprovada"),
+        F.col("t5_score"),
+        F.col("t6_score"),
+        F.col("t7_score"),
         # Adicionar as métricas de tempo
         F.current_timestamp().alias("tempo_saida_resultado"),  # Timestamp de saída
         F.col("kafka_timestamp").alias("tempo_entrada_kafka"),  # Timestamp de entrada no Kafka
@@ -243,27 +254,29 @@ try:
 
     print("Iniciando stream de saída...")
 
-    def write_microbatch_postsgres(data, mbatch_id):
-        # Mostrar estatísticas de latência no console para monitoramento
-        if not data.isEmpty():
-            stats = data.agg(
-                F.avg("latencia_total_ms").alias("latencia_media_ms"),
-                F.max("latencia_total_ms").alias("latencia_maxima_ms"),
-                F.min("latencia_total_ms").alias("latencia_minima_ms"),
-                F.count("*").alias("total_transacoes")
-            ).collect()[0]
-            
-            print(f"=== Estatísticas Batch {mbatch_id} ===")
-            print(f"Total transações: {stats['total_transacoes']}")
-            print(f"Latência média: {stats['latencia_media_ms']:.2f}ms")
-            print(f"Latência mínima: {stats['latencia_minima_ms']:.2f}ms")
-            print(f"Latência máxima: {stats['latencia_maxima_ms']:.2f}ms")
-            print("=" * 40)
+    def write_microbatch_to_sinks(data, mbatch_id):
+        data.persist()
 
-        #Coloca os horários das últimas transações na db pra não se perder e ficar só nos estados do spark.
         updates_horarios = data.groupBy("id_usuario_pagador").agg(
             F.max("data_horario").alias("data_ultima_transacao")
         ).withColumnRenamed("id_usuario_pagador", "id_usuario")
+
+
+        transacoes_df = data.select(
+            "id_transacao",
+            "id_usuario_pagador",
+            "id_usuario_recebedor",
+            "id_regiao",
+            "modalidade_pagamento",
+            "data_horario",
+            "valor_transacao",
+            "transacao_aprovada",
+            "tempo_saida_resultado",
+            "tempo_entrada_kafka",
+            "tempo_inicio_processamento",
+            "latencia_total_ms",
+            "tempo_processamento_ms"
+        )
 
         updates_horarios.write \
             .format("jdbc") \
@@ -275,7 +288,7 @@ try:
             .mode("overwrite") \
             .save()
 
-        data.write \
+        transacoes_df.write \
             .format("jdbc") \
             .option("url", jdbc_link) \
             .option("dbtable", "transacoes") \
@@ -284,12 +297,63 @@ try:
             .option("driver", connection_info["driver"]) \
             .mode("append") \
             .save()
+        print(f"Micro-batch {mbatch_id} written to PostgreSQL (transacoes).")
+
+        scores_df = data.select("id_transacao", "t5_score", "t6_score", "t7_score")
+        scores_df.write \
+            .format("jdbc") \
+            .option("url", jdbc_link) \
+            .option("dbtable", "transacoes_scores") \
+            .option("user", connection_info["user"]) \
+            .option("password", connection_info["password"]) \
+            .option("driver", connection_info["driver"]) \
+            .mode("append") \
+            .save()
+        print(f"Micro-batch {mbatch_id} written to PostgreSQL (transacoes_scores).")
+
+        # Write to Redis
+        print(f"Writing micro-batch {mbatch_id} to Redis...")
+        data.write \
+            .format("org.apache.spark.sql.redis") \
+            .option("host", os.getenv("REDIS_HOST", "redis")) \
+            .option("port", os.getenv("REDIS_PORT", "6379")) \
+            .option("table", "transacoes") \
+            .option("key.column", "id_transacao") \
+            .mode("append") \
+            .save()
+        print(f"Micro-batch {mbatch_id} written to Redis.")
+
+        # Adiciona os IDs das transações a um Sorted Set para a funcionalidade de 'itens mais recentes'
+        print(f"Adding to Sorted Set in Redis for micro-batch {mbatch_id}...")
+
+        def add_to_sorted_set(partition):
+            # precisa criar aqui dentro pq
+            # o objeto do cliente não é serializável
+            redis_client = redis.Redis(
+                host=os.getenv("REDIS_HOST", "redis"),
+                port=int(os.getenv("REDIS_PORT", "6379")),
+                db=0
+            )
+
+            pipeline = redis_client.pipeline()
+            sorted_set_key = "recent_transactions"
+            for row in partition:
+                transaction_id = row["id_transacao"]
+                timestamp_score = row["tempo_saida_resultado"].timestamp()
+                pipeline.zadd(sorted_set_key, {transaction_id: timestamp_score})
+            pipeline.execute()
+
+        data.select("id_transacao", "tempo_saida_resultado").rdd.foreachPartition(add_to_sorted_set)
+        print(f"Micro-batch {mbatch_id} added to Redis Sorted Set.")
+
+        data.unpersist()
 
     query = final_output \
         .writeStream \
-        .foreachBatch(write_microbatch_postsgres) \
-        .outputMode("update") \
+        .foreachBatch(write_microbatch_to_sinks) \
+        .outputMode("append") \
         .option("checkpointLocation", "/tmp/spark_checkpoint") \
+        .trigger(processingTime='1 seconds') \
         .start()
 
     # Stream adicional para console com métricas de latência
@@ -300,11 +364,10 @@ try:
         "latencia_total_ms",
         "tempo_processamento_ms"
     ).writeStream \
-        .outputMode("update") \
+        .outputMode("append") \
         .format("console") \
         .option("truncate", "false") \
         .option("numRows", "5") \
-        .trigger(processingTime='30 seconds') \
         .start()
 
     print("Stream iniciado! Aguardando dados...")

@@ -1,0 +1,8 @@
+streamlit
+pandas
+numpy
+sqlalchemy
+geopy
+pydeck
+redis
+psycopg2-binary==2.9.10
