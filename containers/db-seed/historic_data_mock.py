@@ -7,7 +7,7 @@ import sys
 import time
 
 # --- STATIC ---
-NUM_USERS_MOCK = 100_000
+NUM_USERS_MOCK = 10_000
 estados_uf = [
     "AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT",
     "MS","MG","PA","PB","PR","PE","PI","RJ","RN","RS","RO",

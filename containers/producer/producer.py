@@ -80,7 +80,7 @@ def delivery_report(err, msg):
         print(f'Message delivered to {msg.topic()} [{msg.partition()}] @ {msg.offset()}')
 
 
-def generate_transaction(usuarios):
+def generate_transaction(usuarios, gen_historic):
     """Generate a single random transaction."""
     selecao = np.random.choice(np.arange(len(usuarios)), 2, replace = False)
     pagador = usuarios[selecao[0]]
@@ -96,11 +96,13 @@ def generate_transaction(usuarios):
     # if valor > pagador[limite_key]:
     #     valor = round(pagador[limite_key] * np.random.random(), 2)
     
-    # data_horario = (datetime.now() - timedelta(
-    #     seconds=int(np.random.rand() * 86400 * 365)
-    # )).isoformat()
     data_horario = datetime.now().isoformat()
     
+    if gen_historic:
+        data_horario = (datetime.now() - timedelta(
+            seconds=int(np.random.rand() * 86400 * 365)
+        )).isoformat()
+
     transaction = {
         'id_transacao': str(uuid.uuid4()),
         'id_usuario_pagador': pagador[0],
@@ -130,6 +132,12 @@ def main():
                 cur.execute("SELECT id_usuario, saldo FROM usuarios;")
 
                 usuarios = cur.fetchall()
+
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                
+                cur.execute("SELECT COUNT(*) as count FROM transacoes;")
+                transactions_size = cur.fetchone()['count']
+
         print(f"Fetched existing {len(usuarios)} user ids")
 
     except psycopg2.Error as e:
@@ -146,8 +154,9 @@ def main():
     
     try:
         while True:
-            transaction = generate_transaction(usuarios)
-            
+            gen_historic = (transaction_count<1000) and (transactions_size == 0)
+            transaction = generate_transaction(usuarios, gen_historic)
+
             producer.produce(
                 topic=TOPIC_NAME,
                 value=json.dumps(transaction).encode('utf-8'),
@@ -160,7 +169,8 @@ def main():
             if transaction_count % 100 == 0:
                 print(f"Generated and published {transaction_count} transactions")
             
-            time.sleep(0.5)
+            if not gen_historic:
+                time.sleep(0.5)
             
     except KeyboardInterrupt:
         print("\nStopping transaction producer...")

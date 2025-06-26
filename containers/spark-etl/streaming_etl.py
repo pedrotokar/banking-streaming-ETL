@@ -11,11 +11,12 @@ spark = SparkSession.builder \
     .appName("bankingETL") \
     .config("spark.jars.packages", "com.redislabs:spark-redis_2.12:3.0.0,org.postgresql:postgresql:42.6.0") \
     .config("spark.sql.streaming.schemaInference", "true") \
-    .config("spark.sql.adaptive.enabled", "true") \
-    .config("spark.sql.adaptive.coalescePartitions.enabled", "true") \
     .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer") \
     .config("spark.sql.streaming.kafka.useDeprecatedOffsetFetching", "false") \
     .getOrCreate()
+
+# .config("spark.sql.adaptive.enabled", "true") \
+# .config("spark.sql.adaptive.coalescePartitions.enabled", "true") \
 
 spark.sparkContext.setLogLevel("WARN")
 
@@ -37,7 +38,7 @@ try:
         .format("kafka") \
         .option("kafka.bootstrap.servers", "broker:29092") \
         .option("subscribe", "bank_transactions") \
-        .option("startingOffsets", "latest") \
+        .option("startingOffsets", "earliest") \
         .option("failOnDataLoss", "false") \
         .option("kafka.request.timeout.ms", "60000") \
         .option("kafka.session.timeout.ms", "30000") \
