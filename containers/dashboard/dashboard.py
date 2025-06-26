@@ -10,6 +10,7 @@ import plotly.express as px
 import os
 import redis
 import altair as alt
+import json
 
 st.set_page_config(
     page_title="Banking Transaction Dashboard (Live PostgreSQL Data)",
@@ -440,9 +441,8 @@ with col_right:
 
     st.plotly_chart(fig_hour, use_container_width=True)
 
-
 # 3 -------------------------------------------------------------------------
-st.subheader("Distribuição do Score de Risco por Faixa de Valor")
+st.subheader("3. Distribuição do Score de Risco por Faixa de Valor")
 if "valor_transacao" in filtered_df.columns and "t5_score" in filtered_df.columns:
     bins = [0, 500, 1000, 2500, 5000, 10000, np.inf]
     labels = ["0-500", "500-1000", "1000-2500", "2500-5000", "5000-10000", ">10000"]
@@ -465,7 +465,8 @@ if "valor_transacao" in filtered_df.columns and "t5_score" in filtered_df.column
 else:
     st.warning("Colunas 'valor_transacao' ou 't5_score' não encontradas para gerar o gráfico.")
 
-st.subheader("Mapa de Densidade: Concentração de Transações")
+# 4 -------------------------------------------------------------------------
+st.subheader("4. Mapa de Densidade: Concentração de Transações")
 col_approved, col_denied = st.columns(2)
 with col_approved:
     fig_approved = px.density_heatmap(
@@ -491,9 +492,8 @@ with col_denied:
     )
     st.plotly_chart(fig_denied, use_container_width=True, config={"displayModeBar": False})
 
-
-# 3.5
-st.subheader("3. Score de Risco por Horário vs Aprovação de acordo com o horário")
+# 5 -------------------------------------------------------------------------
+st.subheader("5. Score de Risco por Horário vs Aprovação de acordo com o horário")
 
 df_plot = filtered_df.groupby("hour")[["time_score", "transacao_aprovada"]].mean().reset_index()
 
@@ -514,9 +514,21 @@ chart = (bar + line).properties(width=700, height=400)
 
 st.altair_chart(chart, use_container_width=True)
 
-# 4 -------------------------------------------------------------------------
-st.subheader("4. Região vs Taxa de Aprovação")
-st.bar_chart(filtered_df.groupby("region_id_t")["transacao_aprovada"].mean())
+# 6 -------------------------------------------------------------------------
+st.subheader("6. Região vs Taxa de Aprovação")
+
+df_region = (
+    filtered_df.groupby("region_id_t")["transacao_aprovada"]
+    .mean()
+    .reset_index()
+)
+
+chart = alt.Chart(df_region).mark_bar().encode(
+    x=alt.X("region_id_t:O", axis=alt.Axis(labelAngle=0), title="Região"),
+    y=alt.Y("transacao_aprovada:Q", title="Taxa de Aprovação")
+).properties(width=600, height=400)
+
+st.altair_chart(chart, use_container_width=True)
 
 approval_by_state = filtered_df.groupby("region_id_t", as_index=False)["transacao_aprovada"].mean()
 approval_by_state.rename(columns={"region_id_t": "UF"}, inplace=True)
@@ -524,7 +536,6 @@ approval_by_state.rename(columns={"region_id_t": "UF"}, inplace=True)
 vmin = approval_by_state["transacao_aprovada"].min()
 vmax = approval_by_state["transacao_aprovada"].max()
 
-import json
 with open("data/br_states.json", "r", encoding="utf-8") as f:
     brazil_geojson = json.load(f)
 
@@ -554,33 +565,74 @@ fig_map.update_layout(
 st.plotly_chart(fig_map, use_container_width=True)
 
 
-# 5 -------------------------------------------------------------------------
-st.subheader("5. Negações por Saldo e Limite")
+# 7 -------------------------------------------------------------------------
+st.subheader("7. Negações por Saldo e Limite")
+
 denial_counts = pd.DataFrame({
     "Limite": filtered_df["denied_by_limit"].sum(),
     "Saldo": filtered_df["denied_by_balance"].sum()
 }, index=["Contagem"])
-st.bar_chart(denial_counts.T)
 
-# 6 -------------------------------------------------------------------------
-st.subheader("6. Transações Negadas por Tipo de Pagamento")
-denied_type_counts = filtered_df[filtered_df["transacao_aprovada"] == False].groupby("modalidade_pagamento").size()
-st.bar_chart(denied_type_counts)
+df_plot = denial_counts.T.reset_index()
+df_plot.columns = ["Motivo", "Contagem"]
 
-# 7 -------------------------------------------------------------------------
-st.subheader("7. Frequência de Transações por Hora")
-st.line_chart(df.groupby("hour").size())
+chart = alt.Chart(df_plot).mark_bar().encode(
+    x=alt.X("Motivo:O", axis=alt.Axis(labelAngle=0)),
+    y=alt.Y("Contagem:Q")
+).properties(width=600, height=400)
+
+st.altair_chart(chart, use_container_width=True)
 
 # 8 -------------------------------------------------------------------------
-st.subheader("8. Score de Frequência vs Aprovação")
-st.line_chart(df.groupby("frequency_score")["transacao_aprovada"].mean())
+st.subheader("8. Transações Negadas por Tipo de Pagamento")
+
+denied_type_counts = (
+    filtered_df[filtered_df["transacao_aprovada"] == False]
+    .groupby("modalidade_pagamento")
+    .size()
+    .reset_index(name="count")
+)
+
+chart = alt.Chart(denied_type_counts).mark_bar().encode(
+    x=alt.X("modalidade_pagamento:O", axis=alt.Axis(labelAngle=0), title="Tipo de Pagamento"),
+    y=alt.Y("count:Q", title="Quantidade")
+).properties(width=600, height=400)
+
+st.altair_chart(chart, use_container_width=True)
 
 # 9 -------------------------------------------------------------------------
-st.subheader("9. Outliers de Valor de Transação (Z-score)")
-outliers = filtered_df[filtered_df["z_score"].abs() > 3]
-st.dataframe(outliers[["id_usuario_pagador", "valor_transacao", "z_score"]].head(10))
+st.subheader("9. Frequência de Transações por Hora")
+st.line_chart(df.groupby("hour").size())
 
 # 10 ------------------------------------------------------------------------
 st.subheader("10. Distância Geográfica vs Aprovação")
-distance_vs_approval = filtered_df.groupby(["distance_bucket", "transacao_aprovada"], observed=False).size().unstack(fill_value=0)
-st.bar_chart(distance_vs_approval)
+
+distance_vs_approval = (
+    filtered_df.groupby(["distance_bucket", "transacao_aprovada"], observed=False)
+    .size()
+    .unstack(fill_value=0)
+    .reset_index()
+)
+
+distance_vs_approval.columns.name = None
+distance_vs_approval = distance_vs_approval.rename(columns={True: "Aprovada", False: "Negada"})
+
+df_long = distance_vs_approval.melt(id_vars="distance_bucket", var_name="Status", value_name="Contagem")
+
+chart = alt.Chart(df_long).mark_bar().encode(
+    x=alt.X("distance_bucket:O", axis=alt.Axis(labelAngle=0), title="Faixa de Distância"),
+    y=alt.Y("Contagem:Q", title="Quantidade"),
+    color="Status:N"
+).properties(width=600, height=400)
+
+st.altair_chart(chart, use_container_width=True)
+
+# # 8 -------------------------------------------------------------------------
+# st.subheader("8. Score de Frequência vs Aprovação")
+# st.line_chart(df.groupby("frequency_score")["transacao_aprovada"].mean())
+
+# # 9 -------------------------------------------------------------------------
+# st.subheader("9. Outliers de Valor de Transação (Z-score)")
+# outliers = filtered_df[filtered_df["z_score"].abs() > 3]
+# st.dataframe(outliers[["id_usuario_pagador", "valor_transacao", "z_score"]].head(10))
+
