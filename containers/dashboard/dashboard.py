@@ -152,7 +152,7 @@ def load_data():
 @st.cache_data
 def load_data_constants():
     users = pd.read_sql("SELECT * FROM usuarios;", ENGINE)
-    regions = pd.read_csv("data/regioes_estados_brasil.csv")
+    regions = pd.read_sql("SELECT * FROM regioes;", ENGINE)
 
     if not users.empty:
         if "id_usuario" in users.columns and users["id_usuario"].dtype == 'object':
