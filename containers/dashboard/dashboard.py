@@ -5,7 +5,7 @@ import numpy as np
 from sqlalchemy import create_engine, URL
 from datetime import datetime, date, timezone, timedelta
 from geopy.distance import geodesic
-import pydeck as pdk
+import plotly.express as px
 import os
 import redis
 
@@ -260,6 +260,9 @@ def live():
         
         df = df_from_redis(REDIS_CLIENT, num_recent_transactions)
 
+        if df.empty:
+            return
+
         col1, col2, col3 = st.columns(3)
 
         mean_value = df["valor_transacao"].mean()
@@ -315,8 +318,45 @@ if not filtered_df.empty:
     st.bar_chart(filtered_df["transacao_aprovada"].value_counts())
 
     # 2
-    st.subheader("2. Score de Risco (Valor) vs Aprovação")
-    st.scatter_chart(filtered_df, x="valor_transacao", y="t5_score")
+    st.subheader("Distribuição do Score de Risco por Faixa de Valor")
+    if "valor_transacao" in filtered_df.columns and "t5_score" in filtered_df.columns:
+        bins = [0, 500, 1000, 2500, 5000, 10000, np.inf]
+        labels = ["0-500", "500-1000", "1000-2500", "2500-5000", "5000-10000", ">10000"]
+        plot_df = filtered_df[["valor_transacao", "t5_score", "transacao_aprovada"]].copy()
+        plot_df["valor_bin"] = pd.cut(plot_df["valor_transacao"], bins=bins, labels=labels)
+
+        fig_box = px.box(
+            plot_df.dropna(subset=['valor_bin', 't5_score']),
+            x="valor_bin",
+            y="t5_score",
+            color="transacao_aprovada",
+            labels={
+                "valor_bin": "Faixa de Valor da Transação (R$)",
+                "t5_score": "Score de Risco (T5)",
+                "transacao_aprovada": "Transação Aprovada?"
+            },
+            category_orders={"valor_bin": labels}
+        )
+        st.plotly_chart(fig_box, use_container_width=True, config={'displayModeBar': False})
+    else:
+        st.warning("Colunas 'valor_transacao' ou 't5_score' não encontradas para gerar o gráfico.")
+
+    st.subheader("Mapa de Densidade: Concentração de Transações")
+    col_approved, col_denied = st.columns(2)
+    with col_approved:
+        fig_approved = px.density_heatmap(
+            filtered_df[filtered_df["transacao_aprovada"] == True],
+            x="valor_transacao", y="t5_score", nbinsx=30, nbinsy=30,
+            labels={"valor_transacao": "Valor", "t5_score": "Score"})
+        fig_approved.update_layout(coloraxis_showscale=False)
+        st.plotly_chart(fig_approved, use_container_width=True, config={'displayModeBar': False})
+    with col_denied:
+        fig_denied = px.density_heatmap(
+            filtered_df[filtered_df["transacao_aprovada"] == False],
+            x="valor_transacao", y="t5_score", nbinsx=30, nbinsy=30,
+            labels={"valor_transacao": "Valor", "t5_score": "Score"})
+        fig_denied.update_layout(coloraxis_showscale=False)
+        st.plotly_chart(fig_denied, use_container_width=True, config={'displayModeBar': False})
 
     # 3
     st.subheader("3. Score de Risco (Tempo) vs Aprovação")
