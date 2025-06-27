@@ -38,6 +38,13 @@ Vídeo: abrir arquivo `nuvem.mp4` ou acessar [este link](https://drive.google.co
 *Observação: a depender das configurações do sistema, os comandos do docker
 podem necessitar de execução como administrador.*
 
+Antes de qualquer execução, para acessar a versão mais recente clone o repositório
+do GitHub:
+
+```
+$ git clone https://github.com/pedrotokar/banking-streaming-ETL.git
+```
+
 Como fizemos uso do Docker Compose e de imagens de contêineres disponíveis
 publicamente, a execução de toda a pipeline consiste em utilizar um comando para
 iniciar os contêineres Docker. Para garantir que não há nenhum container sendo
