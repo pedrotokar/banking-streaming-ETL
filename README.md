@@ -119,6 +119,45 @@ foram utilizados para testes durante o desenvolvimento;
 testam manualmente a pipeline (por meio do comando `spark-submit`) e que populam
 o banco de dados.
 
+## Como executar em nuvem
+
+A implantação do sistema em nuvem é muito dependente da plataforma em que o deploy
+será feito. Este trabalho foi implantado na Amazon Web Services e os maiores detalhes
+de quais ferramentas foram utilizadas para o deploy estão no relatório entregue
+junto ao trabalho.
+
+Ainda assim, para caso não se tenha acesso à um ambiente onde é possível executar
+todo o sistema com o auxílio do Docker Composer, a divisão dos componentes e a
+ordem sugerida de implementação é fornecida a seguir. O arquivo `docker-compose.yml`
+e as subpastas de `containers` podem ser inspecionados para se obter as imagens
+docker necessárias para cada componente.
+
+1. *Banco de dados*: a tabela postgres é dependencia direta tanto da pipeline quanto
+dos simuladores de transações, e por isso é recomendado dar deploy do banco em primeiro
+lugar. A recomendação é que o banco seja levantado e o script para gerar os dados de
+usuários seja executado localmente, já que é necessario executar apenas uma vez;
+
+2. *broker Kafka*: tanto a pipeline quanto os geradores de dados também dependem
+do broker. Caso ele seja implementado em um ambiente que não seja especializado
+nesse tipo de serviço (como o Amazon MSK), o recomendado é que ele seja implementado
+junto com o Zookeeper e o Kafka-ui, para facilitar o desenvolvimento e debug;
+
+3. *Banco de dados Redis*: por ser uma das formas de comunicação entre a pipeline
+e o dashboard além do banco Postgres, também é essencial que o Redis esteja
+disponível antes da implantação da pipeline;
+
+4. *Pipeline Spark*: com os componentes acima implantados, é possível dar deploy
+da pipeline. Antes de implementar o dashboard, é possível debugar ela usando a
+UI do Spark.
+
+5. *Dashboard*: com a pipeline em execução, o dashboard pode ler os dados Redis
+e Postgres para funcionar. O streamlit, por padrão, expõe o dashboard para acesso
+via HTTP.
+
+É possível altera o arquivo `docker-composer.yml` para deixar apenas os componentes
+que serão implementados em um ambiente específico, e usar as variáveis de ambiente
+para inserir os endereços de IP, portas e outras informações dos serviços implementados.
+
 ## Serviços e Portas - Execução local
 
 - **Kafka Broker**: localhost:9092
