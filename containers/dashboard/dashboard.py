@@ -287,7 +287,7 @@ def live():
         with col2:
             st.metric(
                 label=f"Nº transações negadas",
-                value=f"{(df["transacao_aprovada"] == 0).sum()}"
+                value=f"{(df['transacao_aprovada'] == 0).sum()}"
             )
 
         with col3:
