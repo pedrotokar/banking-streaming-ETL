@@ -27,6 +27,12 @@ trabalho foram:
 - Docker e Docker Compose para gerenciamento dos componentes;
 - Streamlit para criação do dashboard.
 
+## Entregas
+
+Relatório: abrir arquivo `Computação Escalável - A2.pdf`
+
+Vídeo: abrir arquivo `nuvem.mp4` ou acessar [este link](https://drive.google.com/file/d/19N7-DmAqbzz6CyVyNHyXFq8sFTOySxEx/view?usp=sharing)
+
 ## Como executar localmente
 
 *Observação: a depender das configurações do sistema, os comandos do docker
